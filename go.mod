@@ -1,4 +1,4 @@
-module github.com/pj-hoakari/go-service-template
+module github.com/pj-hoakari/tolo-service-gateway
 
 go 1.27.1
 

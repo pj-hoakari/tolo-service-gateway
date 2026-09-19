@@ -7,10 +7,10 @@ import (
 
 	connectrpc "connectrpc.com/connect"
 
-	greetv1 "github.com/pj-hoakari/go-service-template/gen/greet/v1"
-	"github.com/pj-hoakari/go-service-template/gen/greet/v1/greetv1connect"
-	"github.com/pj-hoakari/go-service-template/internal/application"
-	"github.com/pj-hoakari/go-service-template/internal/domain"
+	greetv1 "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1"
+	"github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/application"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/domain"
 )
 
 // errInternal is the only detail a client learns about an internal failure.

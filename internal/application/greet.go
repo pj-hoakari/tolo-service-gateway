@@ -4,7 +4,7 @@ package application
 import (
 	"context"
 
-	"github.com/pj-hoakari/go-service-template/internal/domain"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/domain"
 )
 
 // GreetInput contains the values accepted by the Greet use case.

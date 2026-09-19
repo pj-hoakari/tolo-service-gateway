@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/pj-hoakari/go-service-template/internal/application"
-	"github.com/pj-hoakari/go-service-template/internal/domain"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/application"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/domain"
 )
 
 func TestGreet(t *testing.T) {

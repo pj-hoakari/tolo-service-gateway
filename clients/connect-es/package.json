@@ -1,7 +1,7 @@
 {
-	"name": "@pj-hoakari/go-service-template-client-es",
+	"name": "@pj-hoakari/tolo-service-gateway-client-es",
 	"version": "0.1.0",
-	"description": "go-service-template の Connect クライアント（connect-es 生成コード）",
+	"description": "tolo-service-gateway の Connect クライアント（connect-es 生成コード）",
 	"license": "UNLICENSED",
 	"type": "module",
 	"files": [
@@ -28,7 +28,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/pj-hoakari/go-service-template.git",
+		"url": "git+https://github.com/pj-hoakari/tolo-service-gateway.git",
 		"directory": "clients/connect-es"
 	}
 }

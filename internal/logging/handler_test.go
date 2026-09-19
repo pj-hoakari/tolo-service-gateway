@@ -174,12 +174,12 @@ func TestDerivedHandlersKeepTraceFields(t *testing.T) {
 
 		var buf bytes.Buffer
 
-		logger := NewLogger(&buf, Options{Level: slog.LevelInfo, AddSource: false, ProjectID: "example-project"}).With("service", "go-service-template")
+		logger := NewLogger(&buf, Options{Level: slog.LevelInfo, AddSource: false, ProjectID: "example-project"}).With("service", "tolo-service-gateway")
 		logger.ErrorContext(contextWithSampledSpan(t), "internal error")
 
 		entry := decodeLine(t, &buf)
 
-		if got, want := entry["service"], "go-service-template"; got != want {
+		if got, want := entry["service"], "tolo-service-gateway"; got != want {
 			t.Errorf("service = %v, want %q", got, want)
 		}
 
@@ -413,7 +413,7 @@ func TestEnabledFollowsTheConfiguredLevel(t *testing.T) {
 	var buf bytes.Buffer
 
 	handler := NewHandler(&buf, Options{Level: slog.LevelWarn, AddSource: false, ProjectID: ""})
-	derived := handler.WithAttrs([]slog.Attr{slog.String("service", "go-service-template")}).WithGroup("request")
+	derived := handler.WithAttrs([]slog.Attr{slog.String("service", "tolo-service-gateway")}).WithGroup("request")
 
 	tests := map[string]struct {
 		handler slog.Handler
@@ -467,7 +467,7 @@ func TestSiblingHandlersKeepTheirOwnAttrs(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	shared := NewLogger(&buf, Options{Level: slog.LevelInfo, AddSource: false, ProjectID: ""}).With("service", "go-service-template")
+	shared := NewLogger(&buf, Options{Level: slog.LevelInfo, AddSource: false, ProjectID: ""}).With("service", "tolo-service-gateway")
 	shared.With("rpc", "Greet").Info("first")
 	shared.With("tenant", "acme").Info("second")
 
@@ -479,7 +479,7 @@ func TestSiblingHandlersKeepTheirOwnAttrs(t *testing.T) {
 	first, second := entries[0], entries[1]
 
 	for _, entry := range entries {
-		if got, want := entry["service"], "go-service-template"; got != want {
+		if got, want := entry["service"], "tolo-service-gateway"; got != want {
 			t.Errorf("service = %v, want %q", got, want)
 		}
 	}
@@ -509,7 +509,7 @@ func TestHandleIsSafeForConcurrentUse(t *testing.T) {
 	const goroutines = 64
 
 	writer := &syncWriter{}
-	logger := NewLogger(writer, Options{Level: slog.LevelInfo, AddSource: false, ProjectID: "example-project"}).With("service", "go-service-template").WithGroup("request")
+	logger := NewLogger(writer, Options{Level: slog.LevelInfo, AddSource: false, ProjectID: "example-project"}).With("service", "tolo-service-gateway").WithGroup("request")
 	ctx := contextWithSampledSpan(t)
 
 	var wg sync.WaitGroup
@@ -534,7 +534,7 @@ func TestHandleIsSafeForConcurrentUse(t *testing.T) {
 	for _, entry := range entries {
 		assertTraceFields(t, entry, "projects/example-project/traces/"+testTraceID)
 
-		if got, want := entry["service"], "go-service-template"; got != want {
+		if got, want := entry["service"], "tolo-service-gateway"; got != want {
 			t.Errorf("service = %v, want %q", got, want)
 		}
 

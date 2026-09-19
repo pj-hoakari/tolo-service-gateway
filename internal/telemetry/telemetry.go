@@ -18,7 +18,7 @@ import (
 )
 
 // DefaultServiceName is reported as service.name when OTEL_SERVICE_NAME is unset.
-const DefaultServiceName = "go-service-template"
+const DefaultServiceName = "tolo-service-gateway"
 
 const (
 	envServiceName     = "OTEL_SERVICE_NAME"

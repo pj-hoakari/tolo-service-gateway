@@ -1,27 +1,4 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"extends": ["github>pj-hoakari/renovate-config"],
-	"baseBranchPatterns": [
-		"main",
-		"with-db"
-	],
-	"packageRules": [
-		{
-			"description": "with-db は DB 専用依存のみ Renovate の対象にする",
-			"matchBaseBranches": ["with-db"],
-			"enabled": false
-		},
-		{
-			"matchBaseBranches": ["with-db"],
-			"matchPackageNames": [
-				"github.com/jackc/pgx{/,}**",
-				"github.com/jmoiron/sqlx{/,}**",
-				"github.com/testcontainers/testcontainers-go{/,}**",
-				"postgres",
-				"migrate/migrate",
-				"golang-migrate/migrate"
-			],
-			"enabled": true
-		}
-	]
+	"extends": ["github>pj-hoakari/renovate-config"]
 }

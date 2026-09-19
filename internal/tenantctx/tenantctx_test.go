@@ -9,7 +9,7 @@ import (
 
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 
-	"github.com/pj-hoakari/go-service-template/internal/tenantctx"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/tenantctx"
 )
 
 // withTenant returns a context carrying verified claims that authenticate the

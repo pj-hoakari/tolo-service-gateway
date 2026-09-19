@@ -12,7 +12,7 @@ services:
     server:
         environment:
             OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
-            OTEL_SERVICE_NAME: go-service-template
+            OTEL_SERVICE_NAME: tolo-service-gateway
         depends_on:
             jaeger:
                 condition: service_started

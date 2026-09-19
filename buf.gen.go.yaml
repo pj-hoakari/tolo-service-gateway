@@ -4,7 +4,7 @@ managed:
     enabled: true
     override:
         - file_option: go_package_prefix
-          value: github.com/pj-hoakari/go-service-template/gen
+          value: github.com/pj-hoakari/tolo-service-gateway/gen
     disable:
         # authz options are provided by protoc-gen-authz-go as a Go package.
         - file_option: go_package

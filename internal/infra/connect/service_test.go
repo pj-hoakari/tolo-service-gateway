@@ -12,10 +12,10 @@ import (
 	connectrpc "connectrpc.com/connect"
 	"go.opentelemetry.io/otel/trace"
 
-	greetv1 "github.com/pj-hoakari/go-service-template/gen/greet/v1"
-	"github.com/pj-hoakari/go-service-template/internal/application"
-	"github.com/pj-hoakari/go-service-template/internal/domain"
-	"github.com/pj-hoakari/go-service-template/internal/logging"
+	greetv1 "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/application"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/domain"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/logging"
 )
 
 func TestServiceGreet(t *testing.T) {

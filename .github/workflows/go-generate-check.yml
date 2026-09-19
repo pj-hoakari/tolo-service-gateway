@@ -8,7 +8,7 @@ on:
             - "go.sum"
             - ".github/workflows/go-generate-check.yml"
     push:
-        branches: [main, with-db]
+        branches: [main]
         paths:
             - "**/*.go"
             - "go.mod"

@@ -10,7 +10,7 @@ on:
             - "mise.toml"
             - ".github/workflows/golangci-lint.yml"
     push:
-        branches: [main, with-db]
+        branches: [main]
         paths:
             - "**/*.go"
             - ".golangci.yml"
