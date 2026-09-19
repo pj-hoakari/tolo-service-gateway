@@ -1,0 +1,160 @@
+name: Sync with-db
+
+on:
+    push:
+        branches: [main]
+
+permissions:
+    contents: write
+    issues: write
+    statuses: write
+
+concurrency:
+    group: sync-with-db
+    cancel-in-progress: false
+
+jobs:
+    prepare:
+        runs-on: ubuntu-latest
+        outputs:
+            exists: ${{ steps.branch.outputs.exists }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+
+            - name: Check with-db branch exists
+              id: branch
+              run: |
+                  if git ls-remote --exit-code --heads origin with-db > /dev/null; then
+                    echo "exists=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "exists=false" >> "$GITHUB_OUTPUT"
+                    echo "::notice::with-db ブランチが存在しないため同期をスキップしました"
+                  fi
+
+            - name: Merge main into with-db
+              if: steps.branch.outputs.exists == 'true'
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git switch with-db
+                  git merge --no-ff --no-edit origin/main
+
+            - name: Push candidate branch
+              if: steps.branch.outputs.exists == 'true'
+              run: git push --force origin HEAD:refs/heads/with-db-candidate
+
+    test:
+        needs: prepare
+        if: needs.prepare.outputs.exists == 'true'
+        uses: ./.github/workflows/test.yml
+        with:
+            ref: with-db-candidate
+
+    lint:
+        needs: prepare
+        if: needs.prepare.outputs.exists == 'true'
+        uses: ./.github/workflows/golangci-lint.yml
+        with:
+            ref: with-db-candidate
+
+    generate-check:
+        needs: prepare
+        if: needs.prepare.outputs.exists == 'true'
+        uses: ./.github/workflows/go-generate-check.yml
+        with:
+            ref: with-db-candidate
+
+    promote:
+        needs: [prepare, test, lint, generate-check]
+        if: needs.prepare.outputs.exists == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: with-db-candidate
+                  fetch-depth: 0
+
+            - name: Mark candidate as verified
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              run: |
+                  sha=$(git rev-parse HEAD)
+                  for context in test actionlint; do
+                    gh api "repos/${{ github.repository }}/statuses/${sha}" \
+                      -f state=success \
+                      -f context="$context" \
+                      -f description="verified by sync-with-db" \
+                      -f target_url="$RUN_URL"
+                  done
+
+            - name: Promote candidate to with-db
+              # 検証中に with-db へ別の push があった場合は non-ff で失敗し、次回同期に委ねる。
+              run: |
+                  git push origin HEAD:refs/heads/with-db
+                  git push origin --delete with-db-candidate
+
+            - name: Close resolved sync-failure issues
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              run: |
+                  for number in $(gh issue list --label sync-failure --state open --json number --jq '.[].number'); do
+                    gh issue close "$number" --comment "同期成功、クローズします: $RUN_URL"
+                  done
+
+    notify-failure:
+        needs: [prepare, test, lint, generate-check, promote]
+        if: ${{ !cancelled() && needs.prepare.outputs.exists == 'true' && contains(needs.*.result, 'failure') }}
+        runs-on: ubuntu-latest
+        steps:
+            - name: Report sync failure
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  ASSIGNEE: KasumiMercury
+              run: |
+                  stage="不明"
+                  if [ "${{ needs.prepare.result }}" = "failure" ]; then stage="マージ競合"; fi
+                  if [ "${{ needs.test.result }}" = "failure" ]; then stage="テスト失敗"; fi
+                  if [ "${{ needs.lint.result }}" = "failure" ]; then stage="lint 失敗"; fi
+                  if [ "${{ needs.generate-check.result }}" = "failure" ]; then stage="go generate ドリフト"; fi
+
+                  gh label create sync-failure --description "with-db 同期の失敗" --color d93f0b --force
+
+                  body=$(cat <<EOF
+                  ## with-db 同期失敗: ${stage}
+
+                  main → with-db の同期が失敗しました。
+
+                  - 失敗ステージ: **${stage}**
+                  - Workflow run: ${RUN_URL}
+                  - main のコミット: ${{ github.sha }}
+
+                  ### 解決手順
+
+                  \`\`\`bash
+                  git fetch origin
+                  git switch with-db
+                  git reset --hard origin/with-db
+                  git merge origin/main
+                  # 競合した場合: 解消して git add → git commit
+                  # go.mod / go.sum の競合は「main の更新 + DB 依存の追加」の形に編集し go mod tidy で go.sum を再生成
+                  go test ./...
+                  git push origin with-db
+                  \`\`\`
+
+                  EOF
+                  )
+
+                  existing=$(gh issue list --label sync-failure --state open --json number --jq '.[0].number')
+                  if [ -n "$existing" ]; then
+                    gh issue comment "$existing" --body "$body"
+                  else
+                    gh issue create --title "with-db 同期失敗" --label sync-failure --assignee "$ASSIGNEE" --body "$body"
+                  fi

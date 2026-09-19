@@ -1,0 +1,53 @@
+name: Check Go Generated Code
+
+on:
+    pull_request:
+        paths:
+            - "**/*.go"
+            - "go.mod"
+            - "go.sum"
+            - ".github/workflows/go-generate-check.yml"
+    push:
+        branches: [main, with-db]
+        paths:
+            - "**/*.go"
+            - "go.mod"
+            - "go.sum"
+            - ".github/workflows/go-generate-check.yml"
+    workflow_call:
+        inputs:
+            ref:
+                description: Checkout target (default is the triggering commit)
+                type: string
+                required: false
+                default: ""
+
+permissions:
+    contents: read
+
+jobs:
+    drift-check:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ inputs.ref }}
+
+            - name: Set up Go
+              uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+              with:
+                  go-version-file: go.mod
+                  cache: true
+
+            - name: Run generators
+              run: go generate ./...
+
+            - name: Verify generated code is up to date
+              run: |
+                  if [ -n "$(git status --porcelain)" ]; then
+                    echo "::error::go generate の実行後に未コミットの差分があります"
+                    git status --short
+                    git diff
+                    exit 1
+                  fi

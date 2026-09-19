@@ -1,0 +1,89 @@
+name: Publish connect-es Client
+
+on:
+    release:
+        types: [published]
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "公開するバージョン（vX.Y.Z または vX.Y.Z-suffix）"
+                required: false
+                type: string
+
+permissions:
+    contents: read
+    packages: write
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Set up buf
+              uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1.5.0
+              with:
+                  setup_only: true
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Set up Task
+              uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+              with:
+                  version: 3.x
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Set up Node.js
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+                  registry-url: https://npm.pkg.github.com
+                  scope: "@pj-hoakari"
+
+            - name: Install connect-es dependencies
+              working-directory: clients/connect-es
+              run: npm ci
+
+            - name: Lint proto
+              run: task proto:lint
+
+            - name: Generate connect-es client
+              run: task proto:gen:es
+
+            - name: Resolve and apply version
+              id: version
+              working-directory: clients/connect-es
+              env:
+                  INPUT_VERSION: ${{ inputs.version }}
+              run: |
+                  set -euo pipefail
+                  RAW="$INPUT_VERSION"
+                  if [ -z "$RAW" ] && [ "$GITHUB_EVENT_NAME" = "release" ]; then
+                    RAW="$GITHUB_REF_NAME"
+                  fi
+
+                  if [ -n "$RAW" ]; then
+                    # 先頭の v を許容して除去し、vX.Y.Z(-suffix) 形式を検証する。
+                    VERSION="${RAW#v}"
+                    if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+                      echo "::error::想定外のタグ/バージョン形式です: '$RAW'（vX.Y.Z または vX.Y.Z-suffix。例: v0.1.0, v0.1.0-rc）"
+                      exit 1
+                    fi
+                    npm version "$VERSION" --no-git-tag-version --allow-same-version
+                  else
+                    VERSION="$(node -p "require('./package.json').version")"
+                  fi
+
+                  DIST_TAG="latest"
+                  case "$VERSION" in
+                    *-*) DIST_TAG="next" ;;
+                  esac
+
+                  echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+                  echo "publishing $(node -p "require('./package.json').name")@${VERSION} (dist-tag: ${DIST_TAG})"
+
+            - name: Publish to GitHub Packages
+              working-directory: clients/connect-es
+              run: npm publish --tag "${{ steps.version.outputs.dist_tag }}"
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

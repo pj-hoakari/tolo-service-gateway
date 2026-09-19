@@ -1,0 +1,110 @@
+name: Publish Proto Artifact
+
+on:
+    release:
+        types: [published]
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "公開するバージョン（vX.Y.Z または vX.Y.Z-suffix）"
+                required: false
+                type: string
+
+env:
+    REGISTRY: ghcr.io
+    ARTIFACT_NAME: ${{ github.repository }}-proto
+    ARTIFACT_TYPE: application/vnd.protobuf
+    LAYER_MEDIA_TYPE: application/vnd.protobuf
+
+permissions:
+    contents: read
+    packages: write
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Resolve version and tags
+              id: version
+              env:
+                  INPUT_VERSION: ${{ inputs.version }}
+              run: |
+                  set -euo pipefail
+                  RAW="$INPUT_VERSION"
+                  if [ -z "$RAW" ] && [ "$GITHUB_EVENT_NAME" = "release" ]; then
+                    RAW="$GITHUB_REF_NAME"
+                  fi
+                  if [ -z "$RAW" ]; then
+                    echo "::error::バージョンを決定できません（workflow_dispatch では version 入力が必要です）"
+                    exit 1
+                  fi
+
+                  VERSION="${RAW#v}"
+                  if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+                    echo "::error::想定外のタグ/バージョン形式: '$RAW'（vX.Y.Z または vX.Y.Z-suffix。例: v0.1.0, v0.1.0-rc）"
+                    exit 1
+                  fi
+
+                  CORE="${VERSION%%-*}"
+                  MAJOR="${CORE%%.*}"
+                  MINOR="${CORE#*.}"; MINOR="${MINOR%%.*}"
+
+                  TAGS="$VERSION"
+                  case "$VERSION" in
+                    *-*) ;;
+                    *)
+                      TAGS="$TAGS,$MAJOR.$MINOR"
+                      if [ "$MAJOR" != "0" ]; then
+                        TAGS="$TAGS,$MAJOR"
+                      fi
+                      TAGS="$TAGS,latest"
+                      ;;
+                  esac
+
+                  echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+                  echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+                  echo "proto artifact version: $VERSION (tags: $TAGS)"
+
+            - name: Set up ORAS
+              uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+            - name: Log in to GitHub Container Registry
+              run: |
+                  set -euo pipefail
+                  printf '%s' "${{ secrets.GITHUB_TOKEN }}" \
+                    | oras login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+            - name: Push proto artifact
+              env:
+                  VERSION: ${{ steps.version.outputs.version }}
+                  TAGS: ${{ steps.version.outputs.tags }}
+              run: |
+                  set -euo pipefail
+
+                  cd proto
+
+                  mapfile -t FILES < <(find . -type f -name '*.proto' | sed 's|^\./||' | sort)
+                  if [ "${#FILES[@]}" -eq 0 ]; then
+                    echo "::error::公開対象の .proto ファイルが見つかりません"
+                    exit 1
+                  fi
+
+                  FILE_ARGS=()
+                  for f in "${FILES[@]}"; do
+                    FILE_ARGS+=("${f}:${LAYER_MEDIA_TYPE}")
+                  done
+
+                  echo "publishing ${#FILES[@]} proto file(s):"
+                  printf '  %s\n' "${FILES[@]}"
+
+                  oras push \
+                    --artifact-type "$ARTIFACT_TYPE" \
+                    --annotation "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+                    --annotation "org.opencontainers.image.version=${VERSION}" \
+                    --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
+                    "${REGISTRY}/${ARTIFACT_NAME}:${TAGS}" \
+                    "${FILE_ARGS[@]}"

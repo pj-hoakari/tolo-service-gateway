@@ -1,0 +1,122 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+tasks:
+    up:
+        desc: Start the development environment.
+        cmds:
+            - docker compose up -d
+
+    up:build:
+        desc: Build and start the development environment.
+        cmds:
+            - docker compose up -d --build
+
+    up:o11y:
+        desc: Start the development environment with observability.
+        cmds:
+            - docker compose -f compose.yml -f compose.o11y.yml up -d
+
+    up:build:o11y:
+        desc: Build and start the development environment with observability.
+        cmds:
+            - docker compose -f compose.yml -f compose.o11y.yml up -d --build
+
+    down:
+        desc: Stop the development environment.
+        cmds:
+            - docker compose down
+
+    down:o11y:
+        desc: Stop the development environment with observability.
+        cmds:
+            - docker compose -f compose.yml -f compose.o11y.yml down
+
+    proto:
+        desc: Lint proto and regenerate connect-go code for development.
+        cmds:
+            - task: proto:lint
+            - task: proto:gen:go
+
+    proto:write-authz:
+        desc: Write authz proto to proto directory.
+        cmds:
+          - go tool protoc-gen-authz-go --write-proto proto
+
+    proto:lint:
+        desc: Lint proto.
+        deps:
+          - proto:write-authz
+        cmds:
+            - buf lint
+
+    proto:gen:go:
+        desc: Regenerate connect-go code from proto.
+        deps:
+          - proto:write-authz
+        cmds:
+            - buf generate --template buf.gen.go.yaml
+        sources:
+            - "proto/**/*.proto"
+            - buf.yaml
+            - buf.gen.go.yaml
+        generates:
+            - "gen/**/*"
+
+    proto:gen:es:
+        desc: Regenerate connect-es code from proto.
+        deps:
+          - proto:write-authz
+        cmds:
+            - buf generate --template buf.gen.es.yaml
+        sources:
+            - "proto/**/*.proto"
+            - buf.yaml
+            - buf.gen.es.yaml
+            - clients/connect-es/package.json
+        generates:
+            - "clients/connect-es/gen/**/*"
+
+# --- bootstrap task: begin (this block removes itself on completion) ---
+    bootstrap:
+        desc: Bootstrap a new service repository created from this template.
+        vars:
+            TEMPLATE_REPO: "github.com/pj-hoakari/go-service-template"
+            TEMPLATE_NAME: "go-service-template"
+            NEW_REPO:
+                sh: git remote get-url origin | sed -E 's#^(ssh://)?(https?://)?(git@)?##; s#:#/#; s#\.git$##'
+        requires:
+            vars:
+                - name: SERVICE_NAME
+                - name: WITH_OPTION
+                  enum: ["none", "db"]
+        preconditions:
+            - sh: '[ "{{.NEW_REPO}}" != "{{.TEMPLATE_REPO}}" ]'
+              msg: "origin is the template repository itself; run this in a repository created from the template."
+        cmds:
+            - |
+                if [ "{{.WITH_OPTION}}" = "none" ]; then
+                    echo "Bootstrapping {{.SERVICE_NAME}} with no options"
+                else
+                    if ! git rev-parse --verify --quiet origin/with-{{.WITH_OPTION}} >/dev/null; then
+                        echo "origin/with-{{.WITH_OPTION}} not found. Create the repository with 'Include all branches'." >&2
+                        exit 1
+                    fi
+                    echo "Bootstrapping {{.SERVICE_NAME}} with option {{.WITH_OPTION}}"
+                    git merge --no-commit --no-ff origin/with-{{.WITH_OPTION}}
+                fi
+            - mise install
+            - echo "Rewriting {{.TEMPLATE_REPO}} -> {{.NEW_REPO}}"
+            - git grep -lzF "{{.TEMPLATE_REPO}}" -- ':!gen' | xargs -0 -r sed -i 's#{{.TEMPLATE_REPO}}#{{.NEW_REPO}}#g'
+            - git grep -lzF "{{.TEMPLATE_NAME}}" -- ':!gen' | xargs -0 -r sed -i 's#{{.TEMPLATE_NAME}}#{{.SERVICE_NAME}}#g'
+            - go mod tidy
+            - npm install --prefix clients/connect-es
+            - task: proto
+            - git branch -d with-db 2>/dev/null || true
+            - mv renovate.example.json renovate.json
+            - git rm .github/workflows/sync-with-db.yml
+            - |
+                sed -i '/^# --- bootstrap task: begin (this block removes itself on completion) ---$/,/^# --- bootstrap task: end ---$/d' Taskfile.yml
+                sed -i -e '${/^[[:space:]]*$/d}' Taskfile.yml
+# --- bootstrap task: end ---

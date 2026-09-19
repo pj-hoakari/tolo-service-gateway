@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+import "authz/v1/options.proto";
+
+package greet.v1;
+
+service GreetService {
+  option (authz.v1.service_auth_policy) = {
+    level: AUTH_LEVEL_AUTHENTICATED
+    required_scopes: "greeting.read"
+  };
+  rpc Greet(GreetRequest) returns (GreetResponse) {}
+}
+
+message GreetRequest {
+  string name = 1;
+}
+
+message GreetResponse {
+  string greeting = 1;
+}

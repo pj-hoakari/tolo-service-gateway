@@ -1,0 +1,27 @@
+name: Guard main
+
+on:
+    pull_request:
+        branches: [main]
+
+permissions:
+    contents: read
+
+jobs:
+    block-with-branch:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Reject with-* head branches
+              env:
+                  HEAD_REF: ${{ github.head_ref }}
+              run: |
+                  case "$HEAD_REF" in
+                    with-*)
+                      echo "::error::${HEAD_REF} はテンプレートブランチのため、main へのマージ禁止"
+                      exit 1
+                      ;;
+                    *)
+                      echo "OK"
+                      ;;
+                  esac
+

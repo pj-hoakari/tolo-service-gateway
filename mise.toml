@@ -1,0 +1,15 @@
+[tools]
+actionlint = "1.7.12"
+betterleaks = "latest"
+buf = "1.73.0"
+go = "1.27.1"
+golangci-lint = "2.13.2"
+lefthook = "latest"
+oras = "latest"
+task = "latest"
+
+[hooks]
+postinstall = "if [ -z \"${CI:-}\" ] && git rev-parse --git-dir > /dev/null 2>&1; then lefthook install; fi"
+
+[settings]
+experimental = true
