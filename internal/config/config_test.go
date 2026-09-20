@@ -900,6 +900,104 @@ func TestLoadTrimsTheSecretFile(t *testing.T) {
 	}
 }
 
+func TestLoadLegacyEventsWriteScope(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		issuer          string
+		raw             string
+		want            bool
+		wantErrContains string
+	}{
+		"unset": {
+			issuer:          "https://idp.example.com",
+			raw:             "",
+			want:            false,
+			wantErrContains: "",
+		},
+		"enabled": {
+			issuer:          "https://idp.example.com",
+			raw:             "enabled",
+			want:            true,
+			wantErrContains: "",
+		},
+		"true is not accepted": {
+			issuer:          "https://idp.example.com",
+			raw:             "true",
+			want:            false,
+			wantErrContains: "IDP_LEGACY_EVENTS_WRITE_SCOPE",
+		},
+		"one is not accepted": {
+			issuer:          "https://idp.example.com",
+			raw:             "1",
+			want:            false,
+			wantErrContains: "IDP_LEGACY_EVENTS_WRITE_SCOPE",
+		},
+		"another case is not accepted": {
+			issuer:          "https://idp.example.com",
+			raw:             "Enabled",
+			want:            false,
+			wantErrContains: "IDP_LEGACY_EVENTS_WRITE_SCOPE",
+		},
+		"surrounded by spaces": {
+			issuer:          "https://idp.example.com",
+			raw:             " enabled ",
+			want:            false,
+			wantErrContains: "IDP_LEGACY_EVENTS_WRITE_SCOPE",
+		},
+		"disabled is not accepted": {
+			issuer:          "https://idp.example.com",
+			raw:             "disabled",
+			want:            false,
+			wantErrContains: "IDP_LEGACY_EVENTS_WRITE_SCOPE",
+		},
+		"without the issuer": {
+			issuer:          "",
+			raw:             "enabled",
+			want:            false,
+			wantErrContains: "IDP_ISSUER",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(func(key string) string {
+				return map[string]string{
+					"INTERNAL_JWT_ISSUER":            "service-gateway",
+					"INTERNAL_JWT_SIGNING_KEY_FILE":  "/etc/tolo/signing-key.pem",
+					"INTERNAL_JWT_SIGNING_KEY_ID":    "dev-key-1",
+					"TOLO_GATEWAY_DESTINATIONS_FILE": "/etc/tolo/gateway/destinations.json",
+					"IDP_ISSUER":                     tt.issuer,
+					"IDP_AUDIENCE":                   idpAudienceFor(tt.issuer),
+					"IDP_LEGACY_EVENTS_WRITE_SCOPE":  tt.raw,
+				}[key]
+			})
+
+			if tt.wantErrContains != "" {
+				if err == nil {
+					t.Fatalf("Load() error = nil, want it to mention %q", tt.wantErrContains)
+				}
+
+				if !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("Load() error = %q, want it to mention %q", err.Error(), tt.wantErrContains)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Load() error = %v, want nil", err)
+			}
+
+			if got := cfg.IDPLegacyEventsWriteScope; got != tt.want {
+				t.Errorf("IDPLegacyEventsWriteScope = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func writeSecretFile(t *testing.T, content string) string {
 	t.Helper()
 
