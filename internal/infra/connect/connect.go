@@ -218,7 +218,7 @@ func rejectionError(ctx context.Context, code connectrpc.Code) *connectrpc.Error
 	}
 
 	if code == connectrpc.CodeUnavailable {
-		return connecterr.Unavailable()
+		return connecterr.AuthenticationUnavailable()
 	}
 
 	if code == connectrpc.CodeUnauthenticated {

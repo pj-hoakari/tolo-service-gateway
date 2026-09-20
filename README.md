@@ -24,7 +24,7 @@ docker compose up --build
 task up:build
 ```
 
-この構成は `keygen`・`server`・`testbackend` の 3 つのサービスからなる
+この構成は `keygen`・`server`・`testbackend`・`fakeidp` の 4 つのサービスからなる
 
 `keygen` は開発用の署名鍵を名前付きボリューム `internal-jwt-keys` へ 1 度だけ生成する init サービスで、`server` はその鍵を読み込み専用でマウントして使う  
 鍵はコンテナの外に出ず、リポジトリにもイメージにも含まれない  
@@ -41,8 +41,9 @@ task up:build
 応答には `Cache-Control: public, max-age=300` と本文から導いた ETag が付き、同じ ETag を `If-None-Match` で送れば 304 を返す
 
 `server` は起動時に RPC 登録表（公開 proto の認可ポリシーと宛先の束縛）を導出し、宛先設定と突き合わせ、登録済み service ごとに型付き委譲のハンドラーを立てる  
-現段階で実際に転送するのは、資格情報を伴わない匿名 RPC だけになる  
-`Authorization`・`DPoP`・`workload-authorization`・`X-Serverless-Authorization` のいずれかが付いた要求は、匿名で呼べる RPC であっても `unauthenticated` を返す（外部トークン検証とワークロード認証が未実装のため、匿名へフォールバックしない）  
+転送するのは、資格情報を伴わない匿名 RPC と、外部トークンの検証を通った RPC になる  
+`DPoP`・`workload-authorization`・`X-Serverless-Authorization` のいずれかが付いた要求は、匿名で呼べる RPC であっても `unauthenticated` を返す（送信者拘束とワークロード認証が未実装のため、匿名へフォールバックしない）  
+`Authorization` が付いた要求は外部トークンとして検証し、検証できない場合と `IDP_ISSUER` が未設定の場合は `unauthenticated` を返す（匿名で呼べる RPC でも同じ）  
 認証必須の RPC とサービス専用の RPC も、資格情報なしでは `unauthenticated` を返す  
 登録表に無い RPC は `unimplemented` を返す  
 Connect・gRPC・gRPC-Web のいずれかとして解釈できる POST には、その形式に合わせたエラーを返し、それ以外の要求（GET を含む）には 404 を返す  
@@ -52,7 +53,7 @@ Connect・gRPC・gRPC-Web のいずれかとして解釈できる POST には、
 
 RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`、項目は `audit` グループにまとめる）  
 項目は `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id` と、値があるときだけ出る `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti`・`origin_sub`・`failure_reason` になる  
-外部トークンを受理した場合は `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti` が入る（外部トークンの検証器はまだ配線しておらず、資格情報つきの要求は `unauthenticated` になるため、現段階で入るのは `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id`・`failure_reason` だけ）  
+外部トークンを受理した場合は `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti` が入る（`IDP_ISSUER` が未設定なら資格情報つきの要求はすべて `unauthenticated` になるため、入るのは `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id`・`failure_reason` だけになる）  
 監査ログは `LOG_LEVEL` に依らず必ず出力する  
 登録表に無い RPC・RPC として解釈できない要求（GET を含む）は監査の対象にせず、ログも出さない
 
@@ -67,7 +68,7 @@ n が 1 以上なら、すべての `X-Forwarded-For` の値を出現順に並�
 
 `testbackend`（`http://localhost:8081`）は `server` の JWKS を取得して内部 JWT を検証するテスト用の後段サービスで、`jwtgen` で作った JWKS を配る手順の代わりになる  
 `greet.v1.GreetService/Greet` は内部 JWT を要求するが、`greet.v1.GreetService/Ping` は匿名で呼べる  
-`Ping` は Gateway 経由で通り、`Greet` は内部 JWT の発行経路がまだ無いため Gateway で `unauthenticated` になる  
+`Ping` は Gateway 経由で通り、`Greet` は外部トークンを付けたときだけ通る（後述「外部トークンの検証」）  
 Tenant Management は compose にコンテナが無いため、匿名で呼べる `StartTenantRegistration` も宛先不達の `unavailable` になる
 
 ```bash
@@ -84,6 +85,31 @@ curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8080/t
 
 上から順に、kid `dev-key-1` を含む JWKS、`{"message":"pong"}`、`{"code":"unauthenticated"}`、`{"code":"unauthenticated"}`、`{"code":"unavailable"}` を返す
 
+#### 外部トークンの検証
+
+`IDP_ISSUER` と `IDP_AUDIENCE` を設定すると外部トークンの検証が有効になる  
+未設定なら検証器を持たず、資格情報つきの要求はすべて `unauthenticated` になる  
+`server` は起動時に Discovery（`/.well-known/openid-configuration` と `/.well-known/oauth-authorization-server`）をバックグラウンドで解決し、解決できるまで `/readyz` は 503 を返す（この間、匿名 RPC は通り、トークンつきの要求は `unavailable` になる）  
+IdP へ届かない・5xx が返るといった一時的な失敗は 5 秒ごとに再試行し続けるが、metadata が設定と食い違う場合や issuer が URL として使えない場合は設定の誤りとしてプロセスが終了する  
+受理する claim は Gateway の仕様（`docs/service_gateway_spec.md`）どおりで、IdP の現状に合わせた読み替えはしない  
+現時点の tolo-idp が発行するトークンは `tenant_id` の形式などが仕様に追随していないため拒否される  
+失効照会（introspection）の対象である管理系書き込み 6 RPC は、失効照会が実装されるまで、検証と認可を通っても `unauthenticated`（理由 `introspection_unavailable`）になる
+
+compose の `fakeidp`（`http://localhost:8082`）は開発専用の偽 IdP で、`POST /token` の本文をそのまま claim にしたトークンを検証なしで発行する  
+本番相当の環境へ配備してはならない
+
+```bash
+TOKEN=$(curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"token_use":"tenant_access","sub":"user-1","client_id":"admin-ui","scope":"greeting.read","tenant_id":"0123456789abcdef","ttl_seconds":300}' \
+  http://localhost:8082/token | jq -r .access_token)
+
+curl -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"tolo"}' http://localhost:8080/greet.v1.GreetService/Greet
+```
+
+このトークンでは `Greet` が挨拶を返す  
+`scope` を `other.read` にしたトークンでは `permission_denied`、`tenant_id` を `tenant-a` にしたトークンでは `unauthenticated` になる
+
 #### 環境変数
 
 | 変数 | 必須 | 既定値 | 内容 |
@@ -93,7 +119,9 @@ curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8080/t
 | `INTERNAL_JWT_SIGNING_KEY_FILE` | 必須 | なし | 内部 JWT の署名鍵ファイル（P-256 の EC 秘密鍵の PEM。SEC1 または PKCS#8）のパス。起動時に読み込み、読めない・PEM でない・P-256 でない場合は起動に失敗する |
 | `INTERNAL_JWT_SIGNING_KEY_ID` | 必須 | なし | 署名鍵の kid。発行する内部 JWT のヘッダと公開 JWKS に載る |
 | `INTERNAL_JWT_PUBLISHED_KEY_FILES` | 任意 | なし | 署名鍵に加えて JWKS へ載せる公開鍵。`kid=パス` をカンマ区切りで並べる（例 `next-key=/etc/tolo/keys/next.pub.pem,old-key=/etc/tolo/keys/old.pub.pem`）。kid は署名鍵のものを含めて重複させられない |
-| `IDP_ISSUER` | 任意 | なし | 外部 IdP の issuer。`INTERNAL_JWT_ISSUER` と同じ値は設定エラーになる。外部トークン経路を実装する段階で必須にする |
+| `IDP_ISSUER` | 任意 | なし | 外部 IdP の issuer（絶対 HTTP URL。userinfo・query・fragment は持てない）。設定すると外部トークンの検証が有効になる。`INTERNAL_JWT_ISSUER` と同じ値は設定エラーになる |
+| `IDP_AUDIENCE` | `IDP_ISSUER` があるとき必須 | なし | 外部トークンに要求する `aud`（バックエンド API 全体の論理 audience。例 `backend-api`）。`IDP_ISSUER` 無しで指定すると設定エラーになる |
+| `IDP_ALGORITHMS` | 任意 | `RS256` | 受理する署名アルゴリズムのカンマ区切り。`RS256` と `ES256` だけを指定でき、それ以外の値・空要素・重複と、`IDP_ISSUER` 無しの指定は設定エラーになる |
 | `TOLO_GATEWAY_DESTINATIONS_FILE` | 必須 | なし | 宛先設定ファイル（JSON）のパス。起動時に読み込み、読めない・形式が不正・RPC 登録表と噛み合わない場合は起動に失敗する |
 | `TOLO_GATEWAY_TRUSTED_PROXY_HOPS` | 任意 | `0` | 信頼する前段プロキシの段数（0〜16 の整数）。監査ログの `source_ip` を `X-Forwarded-For` の右から何番目で採るかを決める。範囲外の値と整数でない値は設定エラーになる |
 

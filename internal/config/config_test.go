@@ -30,6 +30,7 @@ func TestLoad(t *testing.T) {
 				"INTERNAL_JWT_SIGNING_KEY_ID":      "dev-key-1",
 				"INTERNAL_JWT_PUBLISHED_KEY_FILES": "next-key=/etc/tolo/keys/next.pub.pem",
 				"IDP_ISSUER":                       "https://idp.example.com",
+				"IDP_AUDIENCE":                     "backend-api",
 				"TOLO_GATEWAY_DESTINATIONS_FILE":   "/etc/tolo/gateway/destinations.json",
 			},
 			wantErr:         false,
@@ -158,6 +159,7 @@ func TestLoad(t *testing.T) {
 				"INTERNAL_JWT_SIGNING_KEY_FILE":  "/etc/tolo/signing-key.pem",
 				"INTERNAL_JWT_SIGNING_KEY_ID":    "dev-key-1",
 				"IDP_ISSUER":                     "https://idp.example.com",
+				"IDP_AUDIENCE":                   "backend-api",
 				"TOLO_GATEWAY_DESTINATIONS_FILE": "/etc/tolo/gateway/destinations.json",
 			},
 			wantErr:              false,
@@ -495,6 +497,184 @@ func TestLoad(t *testing.T) {
 
 			if got := cfg.DestinationsFile; got != tt.wantDestinationsFile {
 				t.Errorf("DestinationsFile = %q, want %q", got, tt.wantDestinationsFile)
+			}
+		})
+	}
+}
+
+func TestLoadIDP(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		issuer          string
+		audience        string
+		algorithms      string
+		wantAlgorithms  []string
+		wantErrContains string
+	}{
+		"nothing set": {
+			issuer:          "",
+			audience:        "",
+			algorithms:      "",
+			wantAlgorithms:  nil,
+			wantErrContains: "",
+		},
+		"the issuer and the audience": {
+			issuer:          "https://idp.example.com",
+			audience:        "backend-api",
+			algorithms:      "",
+			wantAlgorithms:  []string{"RS256"},
+			wantErrContains: "",
+		},
+		"an issuer with a path": {
+			issuer:          "https://idp.example.com/tenants/tolo",
+			audience:        "backend-api",
+			algorithms:      "",
+			wantAlgorithms:  []string{"RS256"},
+			wantErrContains: "",
+		},
+		"both algorithms": {
+			issuer:          "https://idp.example.com",
+			audience:        "backend-api",
+			algorithms:      "ES256,RS256",
+			wantAlgorithms:  []string{"ES256", "RS256"},
+			wantErrContains: "",
+		},
+		"one algorithm": {
+			issuer:          "https://idp.example.com",
+			audience:        "backend-api",
+			algorithms:      "ES256",
+			wantAlgorithms:  []string{"ES256"},
+			wantErrContains: "",
+		},
+		"the issuer without the audience": {
+			issuer:          "https://idp.example.com",
+			audience:        "",
+			algorithms:      "",
+			wantAlgorithms:  nil,
+			wantErrContains: "IDP_AUDIENCE",
+		},
+		"the audience without the issuer": {
+			issuer:          "",
+			audience:        "backend-api",
+			algorithms:      "",
+			wantAlgorithms:  nil,
+			wantErrContains: "IDP_AUDIENCE",
+		},
+		"the algorithms without the issuer": {
+			issuer:          "",
+			audience:        "",
+			algorithms:      "RS256",
+			wantAlgorithms:  nil,
+			wantErrContains: "IDP_ALGORITHMS",
+		},
+		"an unsupported algorithm": {
+			issuer:          "https://idp.example.com",
+			audience:        "backend-api",
+			algorithms:      "RS256,HS256",
+			wantAlgorithms:  nil,
+			wantErrContains: "HS256",
+		},
+		"a duplicated algorithm": {
+			issuer:          "https://idp.example.com",
+			audience:        "backend-api",
+			algorithms:      "RS256,RS256",
+			wantAlgorithms:  nil,
+			wantErrContains: "IDP_ALGORITHMS",
+		},
+		"an empty algorithm": {
+			issuer:          "https://idp.example.com",
+			audience:        "backend-api",
+			algorithms:      "RS256,",
+			wantAlgorithms:  nil,
+			wantErrContains: "IDP_ALGORITHMS",
+		},
+		"algorithms surrounded by spaces": {
+			issuer:          "https://idp.example.com",
+			audience:        "backend-api",
+			algorithms:      "RS256, ES256",
+			wantAlgorithms:  nil,
+			wantErrContains: "IDP_ALGORITHMS",
+		},
+		"an issuer that is not a URL": {
+			issuer:          "idp.example.com",
+			audience:        "backend-api",
+			algorithms:      "",
+			wantAlgorithms:  nil,
+			wantErrContains: "IDP_ISSUER",
+		},
+		"an issuer with another scheme": {
+			issuer:          "ftp://idp.example.com",
+			audience:        "backend-api",
+			algorithms:      "",
+			wantAlgorithms:  nil,
+			wantErrContains: "IDP_ISSUER",
+		},
+		"an issuer with a query": {
+			issuer:          "https://idp.example.com?tenant=tolo",
+			audience:        "backend-api",
+			algorithms:      "",
+			wantAlgorithms:  nil,
+			wantErrContains: "IDP_ISSUER",
+		},
+		"an issuer with a fragment": {
+			issuer:          "https://idp.example.com#tolo",
+			audience:        "backend-api",
+			algorithms:      "",
+			wantAlgorithms:  nil,
+			wantErrContains: "IDP_ISSUER",
+		},
+		"an issuer with userinfo": {
+			issuer:          "https://user@idp.example.com",
+			audience:        "backend-api",
+			algorithms:      "",
+			wantAlgorithms:  nil,
+			wantErrContains: "IDP_ISSUER",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(func(key string) string {
+				return map[string]string{
+					"INTERNAL_JWT_ISSUER":            "service-gateway",
+					"INTERNAL_JWT_SIGNING_KEY_FILE":  "/etc/tolo/signing-key.pem",
+					"INTERNAL_JWT_SIGNING_KEY_ID":    "dev-key-1",
+					"TOLO_GATEWAY_DESTINATIONS_FILE": "/etc/tolo/gateway/destinations.json",
+					"IDP_ISSUER":                     tt.issuer,
+					"IDP_AUDIENCE":                   tt.audience,
+					"IDP_ALGORITHMS":                 tt.algorithms,
+				}[key]
+			})
+
+			if tt.wantErrContains != "" {
+				if err == nil {
+					t.Fatalf("Load() error = nil, want it to mention %q", tt.wantErrContains)
+				}
+
+				if !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("Load() error = %q, want it to mention %q", err.Error(), tt.wantErrContains)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Load() error = %v, want nil", err)
+			}
+
+			if got := cfg.IDPIssuer; got != tt.issuer {
+				t.Errorf("IDPIssuer = %q, want %q", got, tt.issuer)
+			}
+
+			if got := cfg.IDPAudience; got != tt.audience {
+				t.Errorf("IDPAudience = %q, want %q", got, tt.audience)
+			}
+
+			if got := cfg.IDPAlgorithms; !slices.Equal(got, tt.wantAlgorithms) {
+				t.Errorf("IDPAlgorithms = %v, want %v", got, tt.wantAlgorithms)
 			}
 		})
 	}
