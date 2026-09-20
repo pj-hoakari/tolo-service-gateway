@@ -1,10 +1,50 @@
 services:
+    keygen:
+        image: alpine/openssl:3.5.8@sha256:6aa2be0ed55a61fff35583e5763c2ea8288bcd3549d316b954b01eec32fb7006
+        entrypoint: ["/bin/sh", "-c"]
+        command:
+            - |
+              set -eu
+              if [ ! -f /keys/signing-key.pem ]; then
+                openssl ecparam -name prime256v1 -genkey -noout -out /keys/signing-key.pem
+                chown 65532:65532 /keys/signing-key.pem
+                chmod 0400 /keys/signing-key.pem
+              fi
+        volumes:
+            - internal-jwt-keys:/keys
+        restart: "no"
+
     server:
         build:
             context: .
+            target: server
         environment:
             SERVER_ADDR: :8080
             INTERNAL_JWT_ISSUER: service-gateway
-            INTERNAL_JWT_SIGNING_KEY_FILE: /etc/tolo/signing-key.pem
+            INTERNAL_JWT_SIGNING_KEY_FILE: /etc/tolo/keys/signing-key.pem
+            INTERNAL_JWT_SIGNING_KEY_ID: dev-key-1
         ports:
             - "8080:8080"
+        volumes:
+            - internal-jwt-keys:/etc/tolo/keys:ro
+        depends_on:
+            keygen:
+                condition: service_completed_successfully
+
+    testbackend:
+        build:
+            context: .
+            target: testbackend
+        environment:
+            SERVER_ADDR: :8080
+            INTERNAL_JWKS_URL: http://server:8080/.well-known/jwks.json
+            INTERNAL_JWT_ISSUER: service-gateway
+            INTERNAL_JWT_AUDIENCE: tolo-testbackend
+        ports:
+            - "8081:8080"
+        depends_on:
+            server:
+                condition: service_started
+
+volumes:
+    internal-jwt-keys:
