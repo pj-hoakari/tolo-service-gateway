@@ -1,0 +1,43 @@
+services:
+    tenant-management:
+        image: ${TOLO_TM_IMAGE:-ghcr.io/pj-hoakari/tolo-tenant-management:0.1.0}
+        environment:
+            SERVER_ADDR: :8080
+            DATABASE_URL: postgres://tenant-management-db:5432/tenant_management?sslmode=disable&user=tenant_management&password=${TOLO_TM_DB_PASSWORD:-tenant_management}
+            INTERNAL_JWKS_URL: http://server:8080/.well-known/jwks.json
+            INTERNAL_JWT_ISSUER: service-gateway
+            INTERNAL_JWT_AUDIENCE: tolo-tenant-management
+        depends_on:
+            tenant-management-migrate:
+                condition: service_completed_successfully
+            server:
+                condition: service_started
+
+    tenant-management-migrate:
+        image: ${TOLO_TM_MIGRATE_IMAGE:-ghcr.io/pj-hoakari/tolo-tenant-management-migrate:0.1.0}
+        command:
+            - -database
+            - postgres://tenant-management-db:5432/tenant_management?sslmode=disable&user=tenant_management&password=${TOLO_TM_DB_PASSWORD:-tenant_management}
+            - up
+        depends_on:
+            tenant-management-db:
+                condition: service_healthy
+        restart: "no"
+
+    tenant-management-db:
+        image: postgres:18-alpine
+        environment:
+            POSTGRES_DB: tenant_management
+            POSTGRES_USER: tenant_management
+            POSTGRES_PASSWORD: ${TOLO_TM_DB_PASSWORD:-tenant_management}
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+            interval: 5s
+            timeout: 5s
+            retries: 20
+            start_period: 5s
+        volumes:
+            - tenant-management-data:/var/lib/postgresql
+
+volumes:
+    tenant-management-data:
