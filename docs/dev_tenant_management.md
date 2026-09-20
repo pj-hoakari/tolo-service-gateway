@@ -28,14 +28,17 @@ docker compose -p tolotmcheck -f compose.yml -f compose.tm.yml up -d --build
 
 ### イメージ
 
-tolo-tenant-management のコンテナイメージは公開されていないため、compose が git の URL から直接ビルドする  
-既定のビルド元は Gateway の `go.mod` が固定している版（`0250f0a643e9`）で、`TOLO_TM_BUILD_CONTEXT` で別の ref やローカルのパスへ差し替えられる
+tolo-tenant-management の公開イメージ（`ghcr.io/pj-hoakari/tolo-tenant-management` と、マイグレーション用の `ghcr.io/pj-hoakari/tolo-tenant-management-migrate`）を使う  
+既定のタグは `0.1.0` で、Gateway の `go.mod` が参照する tolo-tenant-management の版と揃えてある（片方を上げるときは、もう片方も上げる）  
+イメージは linux/amd64 と linux/arm64 の両方が公開されている
+
+未公開の版で試すときは、tolo-tenant-management のリポジトリでイメージを作り、`TOLO_TM_IMAGE` と `TOLO_TM_MIGRATE_IMAGE` で差し替える
 
 ```bash
-TOLO_TM_BUILD_CONTEXT=https://github.com/pj-hoakari/tolo-tenant-management.git#develop \
-    docker compose -p tolotmcheck -f compose.yml -f compose.tm.yml up -d --build
+docker build -t tolo-tenant-management:dev ../tolo-tenant-management
+docker build -t tolo-tenant-management-migrate:dev --target migrate ../tolo-tenant-management
 
-TOLO_TM_BUILD_CONTEXT=../tolo-tenant-management \
+TOLO_TM_IMAGE=tolo-tenant-management:dev TOLO_TM_MIGRATE_IMAGE=tolo-tenant-management-migrate:dev \
     docker compose -p tolotmcheck -f compose.yml -f compose.tm.yml up -d --build
 ```
 
