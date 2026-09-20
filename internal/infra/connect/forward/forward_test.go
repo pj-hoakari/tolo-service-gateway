@@ -339,6 +339,34 @@ func TestUnaryNamesTheFailureReasonInTheAuditRecord(t *testing.T) {
 		},
 		"an invalid argument": {
 			upstream: connectrpc.NewError(connectrpc.CodeInvalidArgument, errors.New("name is required")),
+			want:     "upstream_refused",
+		},
+		"a missing resource": {
+			upstream: connectrpc.NewError(connectrpc.CodeNotFound, errors.New("tenant not found")),
+			want:     "upstream_refused",
+		},
+		"a denied permission": {
+			upstream: connectrpc.NewError(connectrpc.CodePermissionDenied, errors.New("current permission denied")),
+			want:     "upstream_refused",
+		},
+		"a failed precondition": {
+			upstream: connectrpc.NewError(connectrpc.CodeFailedPrecondition, errors.New("tenant is archived")),
+			want:     "upstream_refused",
+		},
+		"an already existing resource": {
+			upstream: connectrpc.NewError(connectrpc.CodeAlreadyExists, errors.New("member already exists")),
+			want:     "upstream_refused",
+		},
+		"an unavailable upstream dependency": {
+			upstream: connectrpc.NewError(connectrpc.CodeUnavailable, errors.New("the store is down")),
+			want:     "upstream_error",
+		},
+		"an exhausted upstream": {
+			upstream: connectrpc.NewError(connectrpc.CodeResourceExhausted, errors.New("too many requests")),
+			want:     "upstream_error",
+		},
+		"a procedure the upstream lacks": {
+			upstream: connectrpc.NewError(connectrpc.CodeUnimplemented, errors.New("unknown procedure")),
 			want:     "upstream_error",
 		},
 		"a cancelled upstream": {
@@ -477,7 +505,7 @@ func TestUnaryTreatsAnUpstreamRejectionOfTheInternalTokenAsInternal(t *testing.T
 		"an anonymous call": {
 			ctx:        func(ctx context.Context) context.Context { return ctx },
 			wantCode:   connectrpc.CodeUnauthenticated,
-			wantReason: "upstream_error",
+			wantReason: "upstream_refused",
 		},
 	}
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	connectrpc "connectrpc.com/connect"
@@ -19,6 +20,7 @@ const (
 	reasonUpstreamUnreachable           = "upstream_unreachable"
 	reasonUpstreamInternal              = "upstream_internal"
 	reasonUpstreamError                 = "upstream_error"
+	reasonUpstreamRefused               = "upstream_refused"
 	reasonUpstreamRejectedInternalToken = "upstream_rejected_internal_token"
 	reasonCanceled                      = "canceled"
 	reasonDeadlineExceeded              = "deadline_exceeded"
@@ -131,7 +133,28 @@ func translateError(ctx context.Context, err error) error {
 		return failed(ctx, reasonUpstreamInternal, connecterr.InternalError(ctx, err))
 	}
 
-	return failed(ctx, reasonUpstreamError, relayedError(upstream))
+	return failed(ctx, relayedReason(upstream.Code()), relayedError(upstream))
+}
+
+func relayedReason(code connectrpc.Code) string {
+	if slices.Contains(refusalCodes(), code) {
+		return reasonUpstreamRefused
+	}
+
+	return reasonUpstreamError
+}
+
+func refusalCodes() []connectrpc.Code {
+	return []connectrpc.Code{
+		connectrpc.CodeInvalidArgument,
+		connectrpc.CodeNotFound,
+		connectrpc.CodeAlreadyExists,
+		connectrpc.CodePermissionDenied,
+		connectrpc.CodeFailedPrecondition,
+		connectrpc.CodeOutOfRange,
+		connectrpc.CodeAborted,
+		connectrpc.CodeUnauthenticated,
+	}
 }
 
 func hasInternalToken(ctx context.Context) bool {
