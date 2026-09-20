@@ -24,6 +24,13 @@ docker compose up --build
 task up:build
 ```
 
+この構成は `keygen`・`server`・`testbackend` の 3 つのサービスからなる
+
+`keygen` は開発用の署名鍵を名前付きボリューム `internal-jwt-keys` へ 1 度だけ生成する init サービスで、`server` はその鍵を読み込み専用でマウントして使う  
+鍵はコンテナの外に出ず、リポジトリにもイメージにも含まれない  
+鍵がすでにボリュームにあれば `keygen` は何もしないため、起動を繰り返しても鍵は変わらない  
+鍵を作り直すには `docker compose down -v` でボリュームごと削除してから起動し直す
+
 サーバーは `http://localhost:8080` で待ち受ける（停止は `task down`）  
 現段階の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）と公開 JWKS だけで、業務 RPC はまだ受け付けない  
 `/healthz` はプロセスが応答できる限り 200 を返す  
@@ -32,6 +39,17 @@ task up:build
 この経路は認証不要で、`Authorization`・`workload-authorization`・`X-Serverless-Authorization`・`DPoP` のどの認証ヘッダが付いていても内容は変わらず、identity も作らない  
 返すのは署名鍵と `INTERNAL_JWT_PUBLISHED_KEY_FILES` の公開鍵で、秘密鍵成分（`d`）は含まない  
 応答には `Cache-Control: public, max-age=300` と本文から導いた ETag が付き、同じ ETag を `If-None-Match` で送れば 304 を返す
+
+`testbackend`（`http://localhost:8081`）は `server` の JWKS を取得して内部 JWT を検証するテスト用の後段サービスで、`jwtgen` で作った JWKS を配る手順の代わりになる  
+現段階の `server` にはまだ業務 RPC の入口が無く、内部 JWT を発行させる経路が無いため、手元で確認できるのはトークンなしの呼び出しが `unauthenticated` になることまでになる
+
+```bash
+curl http://localhost:8080/.well-known/jwks.json
+
+curl -X POST -H 'Content-Type: application/json' -d '{"name":"tolo"}' http://localhost:8081/greet.v1.GreetService/Greet
+```
+
+前者は kid `dev-key-1` を含む JWKS を返し、後者は `{"code":"unauthenticated"}` を返す
 
 #### 環境変数
 
@@ -45,7 +63,7 @@ task up:build
 | `IDP_ISSUER` | 任意 | なし | 外部 IdP の issuer。`INTERNAL_JWT_ISSUER` と同じ値は設定エラーになる。外部トークン経路を実装する段階で必須にする |
 
 必須の変数が欠けている場合は設定エラーとして起動に失敗する  
-開発用の署名鍵は `openssl ecparam -name prime256v1 -genkey -noout -out <path>` で生成できる（鍵ファイルはリポジトリに置かない）
+compose を使わずに起動する場合、開発用の署名鍵は `openssl ecparam -name prime256v1 -genkey -noout -out <path>` で生成できる（鍵ファイルはリポジトリに置かない）
 
 #### 配備についての注意
 
