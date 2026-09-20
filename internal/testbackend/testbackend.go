@@ -56,3 +56,9 @@ func (greetService) Greet(_ context.Context, req *connectrpc.Request[greetv1.Gre
 		Greeting: fmt.Sprintf("Hello, %s!", name),
 	}), nil
 }
+
+func (greetService) Ping(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+	return connectrpc.NewResponse(&greetv1.PingResponse{
+		Message: "pong",
+	}), nil
+}

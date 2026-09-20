@@ -1,0 +1,6 @@
+{
+  "destinations": {
+    "tolo-testbackend": { "url": "http://testbackend:8080" },
+    "tolo-tenant-management": { "url": "http://tenant-management:8080" }
+  }
+}
