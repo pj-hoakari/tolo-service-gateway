@@ -1,0 +1,76 @@
+services:
+    server:
+        environment:
+            IDP_ISSUER: http://idp:8080
+            IDP_AUDIENCE: backend-api
+        ports: !override
+            - "18090:8080"
+        depends_on: !override
+            keygen:
+                condition: service_completed_successfully
+            idp:
+                condition: service_started
+
+    testbackend:
+        ports: !override
+            - "18091:8080"
+
+    fakeidp:
+        profiles:
+            - fakeidp
+        ports: !reset []
+
+    idp:
+        image: ${TOLO_IDP_IMAGE:-ghcr.io/pj-hoakari/tolo-idp:latest}
+        environment:
+            SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+            SPRING_DATASOURCE_URL: jdbc:postgresql://idp-db:5432/tolo_idp
+            SPRING_DATASOURCE_USERNAME: tolo_idp
+            SPRING_DATASOURCE_PASSWORD: ${TOLO_IDP_DB_PASSWORD:-tolo_idp}
+            SPRING_FLYWAY_LOCATIONS: classpath:db/postgresql
+            TOLO_IDP_ISSUER: http://idp:8080
+            TOLO_IDP_RATE_LIMIT_REDIS_URI: redis://idp-redis:6379
+            TOLO_IDP_RELATION_BASE_URL: http://idp-relation-stub:8080
+            TOLO_IDP_SEED_ENABLED: "true"
+            TOLO_IDP_JWK_ALLOW_EPHEMERAL: "true"
+        ports:
+            - "18080:8080"
+        depends_on:
+            idp-db:
+                condition: service_healthy
+            idp-redis:
+                condition: service_healthy
+            idp-relation-stub:
+                condition: service_started
+
+    idp-relation-stub:
+        image: ghcr.io/pj-hoakari/tolo-relation-stub:latest
+        environment:
+            RELATION_ADDR: ":8080"
+            RELATION_DATA: ${TOLO_RELATION_DATA:-/data/relation.json}
+        ports:
+            - "18081:8080"
+        volumes:
+            - ./config/compose/idp:/data:ro
+
+    idp-db:
+        image: postgres:17-alpine
+        environment:
+            POSTGRES_DB: tolo_idp
+            POSTGRES_USER: tolo_idp
+            POSTGRES_PASSWORD: ${TOLO_IDP_DB_PASSWORD:-tolo_idp}
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+            interval: 5s
+            timeout: 5s
+            retries: 20
+            start_period: 5s
+
+    idp-redis:
+        image: redis:7-alpine
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 5s
+            retries: 20
+            start_period: 5s
