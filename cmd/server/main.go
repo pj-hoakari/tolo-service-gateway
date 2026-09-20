@@ -11,10 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pj-hoakari/internal-jwt-handling/issuer"
+
 	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/httpapi"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/logging"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/telemetry"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/token"
 )
 
 const (
@@ -22,6 +25,10 @@ const (
 	shutdownTimeout   = 10 * time.Second
 	readHeaderTimeout = 10 * time.Second
 )
+
+const signingKeyReadinessCheck = "internal-jwt-signing-key"
+
+var errSigningKeyNotLoaded = errors.New("the internal JWT signing key is not loaded")
 
 func main() {
 	if err := run(); err != nil {
@@ -48,12 +55,13 @@ func run() error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	slog.Info("gateway configuration loaded",
-		"addr", cfg.ListenAddr,
-		"issuer", cfg.IssuerID,
-		"signing_key_file", cfg.SigningKeyFile,
-	)
+	slog.Info("gateway configuration loaded", configLogAttrs(cfg)...)
 	slog.Warn("workload authentication is not implemented yet; do not deploy this build to a production-like environment")
+
+	_, signingKeys, err := token.NewIssuerFromFiles(cfg.IssuerID, internalJWTKeyFiles(cfg))
+	if err != nil {
+		return fmt.Errorf("build internal JWT issuer: %w", err)
+	}
 
 	shutdownTracing, err := telemetry.Setup(ctx)
 	if err != nil {
@@ -66,6 +74,7 @@ func run() error {
 	}
 
 	readiness := httpapi.NewReadiness()
+	readiness.Register(signingKeyReadinessCheck, signingKeyCheck(signingKeys))
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -101,6 +110,56 @@ func run() error {
 		defer cancel()
 
 		return httpServer.Shutdown(shutdownCtx)
+	}
+}
+
+func internalJWTKeyFiles(cfg config.Config) token.FileKeys {
+	published := make([]issuer.KeyFile, 0, len(cfg.PublishedKeys))
+
+	for _, key := range cfg.PublishedKeys {
+		published = append(published, issuer.KeyFile{Path: key.Path, KeyID: key.ID})
+	}
+
+	return token.FileKeys{
+		Signing:   issuer.KeyFile{Path: cfg.SigningKey.Path, KeyID: cfg.SigningKey.ID},
+		Published: published,
+	}
+}
+
+func configLogAttrs(cfg config.Config) []any {
+	publishedKeyIDs := make([]string, 0, len(cfg.PublishedKeys))
+
+	for _, key := range cfg.PublishedKeys {
+		publishedKeyIDs = append(publishedKeyIDs, key.ID)
+	}
+
+	attrs := []any{
+		"addr", cfg.ListenAddr,
+		"issuer", cfg.IssuerID,
+		"signing_key_file", cfg.SigningKey.Path,
+		"signing_kid", cfg.SigningKey.ID,
+		"published_kids", publishedKeyIDs,
+	}
+
+	if cfg.IDPIssuer != "" {
+		attrs = append(attrs, "idp_issuer", cfg.IDPIssuer)
+	}
+
+	return attrs
+}
+
+func signingKeyCheck(keys issuer.KeyProvider) httpapi.ReadinessCheck {
+	return func(ctx context.Context) error {
+		keySet, err := keys.Current(ctx)
+		if err != nil {
+			return fmt.Errorf("read the internal JWT key files: %w", err)
+		}
+
+		if keySet.Signing.Key == nil {
+			return errSigningKeyNotLoaded
+		}
+
+		return nil
 	}
 }
 

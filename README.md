@@ -35,9 +35,13 @@ task up:build
 | --- | --- | --- | --- |
 | `SERVER_ADDR` | 任意 | `:8080` | HTTP サーバーの待受アドレス |
 | `INTERNAL_JWT_ISSUER` | 必須 | なし | 内部 JWT の issuer ID |
-| `INTERNAL_JWT_SIGNING_KEY_FILE` | 必須 | なし | 内部 JWT の署名鍵ファイルのパス。現段階では値の有無だけを検証し、ファイルの読み込みは内部 JWT の発行を配線する段階で行う |
+| `INTERNAL_JWT_SIGNING_KEY_FILE` | 必須 | なし | 内部 JWT の署名鍵ファイル（P-256 の EC 秘密鍵の PEM。SEC1 または PKCS#8）のパス。起動時に読み込み、読めない・PEM でない・P-256 でない場合は起動に失敗する |
+| `INTERNAL_JWT_SIGNING_KEY_ID` | 必須 | なし | 署名鍵の kid。発行する内部 JWT のヘッダと公開 JWKS に載る |
+| `INTERNAL_JWT_PUBLISHED_KEY_FILES` | 任意 | なし | 署名鍵に加えて JWKS へ載せる公開鍵。`kid=パス` をカンマ区切りで並べる（例 `next-key=/etc/tolo/keys/next.pub.pem,old-key=/etc/tolo/keys/old.pub.pem`）。kid は署名鍵のものを含めて重複させられない |
+| `IDP_ISSUER` | 任意 | なし | 外部 IdP の issuer。`INTERNAL_JWT_ISSUER` と同じ値は設定エラーになる。外部トークン経路を実装する段階で必須にする |
 
-必須の変数が欠けている場合は設定エラーとして起動に失敗する
+必須の変数が欠けている場合は設定エラーとして起動に失敗する  
+開発用の署名鍵は `openssl ecparam -name prime256v1 -genkey -noout -out <path>` で生成できる（鍵ファイルはリポジトリに置かない）
 
 #### 配備についての注意
 
