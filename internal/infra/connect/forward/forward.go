@@ -9,15 +9,18 @@ import (
 
 	connectrpc "connectrpc.com/connect"
 
+	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/connecterr"
 )
 
 const defaultUpstreamTimeout = 30 * time.Second
 
-var (
-	errUpstreamUnavailable = errors.New("upstream unavailable")
-	errCanceled            = errors.New("canceled")
-	errDeadlineExceeded    = errors.New("deadline exceeded")
+const (
+	reasonUpstreamUnreachable = "upstream_unreachable"
+	reasonUpstreamInternal    = "upstream_internal"
+	reasonUpstreamError       = "upstream_error"
+	reasonCanceled            = "canceled"
+	reasonDeadlineExceeded    = "deadline_exceeded"
 )
 
 type Mount struct {
@@ -65,39 +68,47 @@ func withUpstreamDeadline(ctx context.Context) (context.Context, context.CancelF
 
 func translateError(ctx context.Context, err error) error {
 	if errors.Is(err, context.Canceled) {
-		return connectrpc.NewError(connectrpc.CodeCanceled, errCanceled)
+		return failed(ctx, reasonCanceled, connecterr.Canceled())
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) {
-		return connectrpc.NewError(connectrpc.CodeDeadlineExceeded, errDeadlineExceeded)
+		return failed(ctx, reasonDeadlineExceeded, connecterr.DeadlineExceeded())
 	}
 
 	var upstream *connectrpc.Error
 	if !errors.As(err, &upstream) {
 		slog.ErrorContext(ctx, "upstream call failed", "error", err)
 
-		return connectrpc.NewError(connectrpc.CodeUnavailable, errUpstreamUnavailable)
+		return failed(ctx, reasonUpstreamUnreachable, connecterr.Unavailable())
 	}
 
 	if upstream.Code() == connectrpc.CodeCanceled {
-		return connectrpc.NewError(connectrpc.CodeCanceled, errCanceled)
+		return failed(ctx, reasonCanceled, connecterr.Canceled())
 	}
 
 	if upstream.Code() == connectrpc.CodeDeadlineExceeded {
-		return connectrpc.NewError(connectrpc.CodeDeadlineExceeded, errDeadlineExceeded)
+		return failed(ctx, reasonDeadlineExceeded, connecterr.DeadlineExceeded())
 	}
 
 	if !connectrpc.IsWireError(upstream) {
 		slog.ErrorContext(ctx, "upstream is unreachable", "error", err)
 
-		return connectrpc.NewError(connectrpc.CodeUnavailable, errUpstreamUnavailable)
+		return failed(ctx, reasonUpstreamUnreachable, connecterr.Unavailable())
 	}
 
 	if upstream.Code() == connectrpc.CodeUnknown || upstream.Code() == connectrpc.CodeInternal { //nolint:forbidigo // reading the upstream code, not building an internal error
-		return connecterr.InternalError(ctx, err)
+		return failed(ctx, reasonUpstreamInternal, connecterr.InternalError(ctx, err))
 	}
 
-	return relayedError(upstream)
+	return failed(ctx, reasonUpstreamError, relayedError(upstream))
+}
+
+func failed(ctx context.Context, reason string, err *connectrpc.Error) error {
+	if record := audit.FromContext(ctx); record != nil {
+		record.FailureReason = reason
+	}
+
+	return err
 }
 
 func relayedError(upstream *connectrpc.Error) *connectrpc.Error {

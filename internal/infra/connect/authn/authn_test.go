@@ -1,10 +1,7 @@
 package authn_test
 
 import (
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -18,20 +15,9 @@ const (
 	anonymousProcedure     = "/greet.v1.GreetService/Ping"
 	authenticatedProcedure = "/greet.v1.GreetService/Greet"
 	serviceOnlyProcedure   = "/tolo.tenant.v1.TenantService/GetEvent"
-	unknownProcedure       = "/greet.v1.GreetService/Absent"
 )
 
-type counter struct {
-	calls int
-}
-
-func (c *counter) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
-	c.calls++
-
-	w.WriteHeader(http.StatusTeapot)
-}
-
-func newRegistry(t *testing.T) *registry.Registry {
+func lookup(t *testing.T, procedure string) registry.Entry {
 	t.Helper()
 
 	built, err := registry.Build(catalog.Bindings(), catalog.Overrides(), protoregistry.GlobalFiles)
@@ -39,124 +25,98 @@ func newRegistry(t *testing.T) *registry.Registry {
 		t.Fatalf("Build() error = %v, want nil", err)
 	}
 
-	return built
-}
-
-func connectRequest(procedure string, headers map[string][]string) *http.Request {
-	req := httptest.NewRequest(http.MethodPost, procedure, strings.NewReader("{}"))
-	req.Header.Set("Content-Type", "application/json")
-
-	for name, values := range headers {
-		req.Header[http.CanonicalHeaderKey(name)] = values
+	entry, registered := built.Lookup(procedure)
+	if !registered {
+		t.Fatalf("Lookup(%q) is not registered", procedure)
 	}
 
-	return req
+	return entry
 }
 
-func TestMiddlewarePassesAnonymousProceduresWithoutCredentials(t *testing.T) {
+func headerWith(values map[string][]string) http.Header {
+	header := make(http.Header)
+
+	for name, value := range values {
+		header[http.CanonicalHeaderKey(name)] = value
+	}
+
+	return header
+}
+
+func TestRejectAcceptsAnAnonymousProcedureWithoutCredentials(t *testing.T) {
 	t.Parallel()
 
-	next, fallback := &counter{calls: 0}, &counter{calls: 0}
-	res := httptest.NewRecorder()
+	reason, rejected := authn.Reject(headerWith(nil), lookup(t, anonymousProcedure))
 
-	authn.Middleware(newRegistry(t), next, fallback).ServeHTTP(res, connectRequest(anonymousProcedure, nil))
-
-	if next.calls != 1 {
-		t.Errorf("next calls = %d, want 1", next.calls)
+	if rejected {
+		t.Errorf("Reject() = %q, true, want it accepted", reason)
 	}
 
-	if fallback.calls != 0 {
-		t.Errorf("fallback calls = %d, want 0", fallback.calls)
+	if reason != "" {
+		t.Errorf("reason = %q, want it empty", reason)
 	}
 }
 
-func TestMiddlewareDefersToTheFallback(t *testing.T) {
+func TestRejectNamesTheReason(t *testing.T) {
 	t.Parallel()
 
-	tests := map[string]*http.Request{
-		"a request no RPC protocol uses": httptest.NewRequest(http.MethodGet, anonymousProcedure, nil),
-		"a method no RPC protocol uses":  connectRequest(anonymousProcedure, nil),
-		"an unregistered procedure":      connectRequest(unknownProcedure, nil),
+	tests := map[string]struct {
+		procedure string
+		header    map[string][]string
+		want      string
+	}{
+		"an anonymous procedure carrying a workload credential": {
+			procedure: anonymousProcedure,
+			header:    map[string][]string{"Workload-Authorization": {""}},
+			want:      authn.ReasonWorkloadAuthorization,
+		},
+		"an anonymous procedure carrying a serverless credential": {
+			procedure: anonymousProcedure,
+			header:    map[string][]string{"X-Serverless-Authorization": {"Bearer outside"}},
+			want:      authn.ReasonWorkloadAuthorization,
+		},
+		"an anonymous procedure carrying an external token": {
+			procedure: anonymousProcedure,
+			header:    map[string][]string{"Authorization": {"Bearer outside"}},
+			want:      authn.ReasonExternalAuthorization,
+		},
+		"an anonymous procedure carrying a DPoP proof": {
+			procedure: anonymousProcedure,
+			header:    map[string][]string{"DPoP": {"proof"}},
+			want:      authn.ReasonExternalAuthorization,
+		},
+		"a workload credential is named before an external token": {
+			procedure: anonymousProcedure,
+			header: map[string][]string{
+				"Workload-Authorization": {"Bearer inside"},
+				"Authorization":          {"Bearer outside"},
+			},
+			want: authn.ReasonWorkloadAuthorization,
+		},
+		"an authenticated procedure without credentials": {
+			procedure: authenticatedProcedure,
+			header:    nil,
+			want:      authn.ReasonAnonymousRejected,
+		},
+		"a service-only procedure without credentials": {
+			procedure: serviceOnlyProcedure,
+			header:    nil,
+			want:      authn.ReasonAnonymousRejected,
+		},
 	}
 
-	tests["a method no RPC protocol uses"].Method = http.MethodPut
-
-	for name, req := range tests {
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			next, fallback := &counter{calls: 0}, &counter{calls: 0}
-			res := httptest.NewRecorder()
+			reason, rejected := authn.Reject(headerWith(test.header), lookup(t, test.procedure))
 
-			authn.Middleware(newRegistry(t), next, fallback).ServeHTTP(res, req)
-
-			if next.calls != 0 {
-				t.Errorf("next calls = %d, want 0", next.calls)
+			if !rejected {
+				t.Fatal("Reject() accepted the request, want it rejected")
 			}
 
-			if fallback.calls != 1 {
-				t.Errorf("fallback calls = %d, want 1", fallback.calls)
-			}
-		})
-	}
-}
-
-func TestMiddlewareRejectsWithoutReachingTheForwarder(t *testing.T) {
-	t.Parallel()
-
-	tests := map[string]*http.Request{
-		"an anonymous procedure carrying a workload credential": connectRequest(anonymousProcedure, map[string][]string{
-			"Workload-Authorization": {""},
-		}),
-		"an anonymous procedure carrying a serverless credential": connectRequest(anonymousProcedure, map[string][]string{
-			"X-Serverless-Authorization": {"Bearer outside"},
-		}),
-		"an anonymous procedure carrying an external token": connectRequest(anonymousProcedure, map[string][]string{
-			"Authorization": {"Bearer outside"},
-		}),
-		"an anonymous procedure carrying a DPoP proof": connectRequest(anonymousProcedure, map[string][]string{
-			"DPoP": {"proof"},
-		}),
-		"an authenticated procedure without credentials": connectRequest(authenticatedProcedure, nil),
-		"a service-only procedure without credentials":   connectRequest(serviceOnlyProcedure, nil),
-	}
-
-	for name, req := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			next, fallback := &counter{calls: 0}, &counter{calls: 0}
-			res := httptest.NewRecorder()
-
-			authn.Middleware(newRegistry(t), next, fallback).ServeHTTP(res, req)
-
-			if next.calls != 0 {
-				t.Errorf("next calls = %d, want 0", next.calls)
-			}
-
-			if fallback.calls != 0 {
-				t.Errorf("fallback calls = %d, want 0", fallback.calls)
-			}
-
-			if got, want := res.Code, http.StatusUnauthorized; got != want {
-				t.Errorf("status = %d, want %d", got, want)
-			}
-
-			var body struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
-			}
-
-			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
-				t.Fatalf("Unmarshal(%q) error = %v", res.Body.String(), err)
-			}
-
-			if got, want := body.Code, "unauthenticated"; got != want {
-				t.Errorf("code = %q, want %q", got, want)
-			}
-
-			if got, want := body.Message, "unauthenticated"; got != want {
-				t.Errorf("message = %q, want %q", got, want)
+			if reason != test.want {
+				t.Errorf("reason = %q, want %q", reason, test.want)
 			}
 		})
 	}
