@@ -5,6 +5,7 @@ services:
             IDP_AUDIENCE: backend-api
             IDP_INTROSPECTION_CLIENT_ID: client-123
             IDP_INTROSPECTION_CLIENT_SECRET_FILE: /etc/tolo/idp-seed/introspection-client-secret
+            IDP_LEGACY_EVENTS_WRITE_SCOPE: ${IDP_LEGACY_EVENTS_WRITE_SCOPE:-}
         ports: !override
             - "18090:8080"
         volumes:

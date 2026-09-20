@@ -118,6 +118,7 @@ IdP は本体を返さず `204` ではなく `200` と空の本文で応答す�
 | `TenantService/ListEvents` | `events.read` | `unavailable` | 宛先が居ないところまで到達する |
 | `RelationAdminService/ListMemberships` | `tenant.read` | `unavailable` | 同上 |
 | `TenantService/CreateEvent` | `events.manage` | `permission_denied`（`missing_scope`） | IdP は `events.manage` を発行できない |
+| `TenantService/CreateEvent`（読み替えを有効にし、`events.write` のトークン） | `events.manage` | `unavailable` | `events.write` を新しい 3 つの scope として扱う（後述） |
 | `TenantService/ArchiveTenant` | `tenant.write` | `unavailable` | 失効照会を通って宛先まで到達する |
 | `TenantService/ArchiveTenant`（失効済み） | `tenant.write` | `unauthenticated`（`token_revoked`） | IdP が `active: false` を返す |
 | `TenantService/GetEvent` | — | `permission_denied`（`internal_only`） | 内部オンリーの RPC |
@@ -125,7 +126,23 @@ IdP は本体を返さず `204` ではなく `200` と空の本文で応答す�
 失効照会の資格情報を設定しないと、対象の 6 RPC は `unauthenticated`（`introspection_unavailable`）で拒否され続ける
 
 IdP が発行できる scope は `openid`・`tenant.read`・`tenant.write`・`events.read`・`events.write` だけで、登録表が要求する `events.manage`・`tenant.claim`・`greeting.read` は出せない  
-これらを必要とする RPC は実物の IdP では試せない
+`tenant.claim`・`greeting.read` を必要とする RPC は実物の IdP では試せない
+
+### `events.write` の読み替え
+
+`events.manage` を要求する RPC は、移行用の読み替えを有効にすると `events.write` のトークンで通せる  
+`IDP_LEGACY_EVENTS_WRITE_SCOPE=enabled` を与えて起動すると、Gateway は `events.write` を `events.manage`・`events.operate`・`events.report` として扱い、後段へ渡す内部 JWT の `scope` にも読み替え後の値を載せる  
+既定は無効で、`compose.idp.yml` は環境変数をそのまま `server` へ渡す
+
+```bash
+IDP_LEGACY_EVENTS_WRITE_SCOPE=enabled docker compose -p toloidpcheck -f compose.yml -f compose.idp.yml up -d --build
+
+TOKEN=$(IDP_SCOPE="openid tenant.read events.write" ./scripts/dev/idp-token.sh)
+curl -s -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -d '{}' http://localhost:18090/tolo.tenant.v1.TenantService/CreateEvent
+```
+
+無効のときは `permission_denied`、有効のときは宛先不達の `unavailable` を返し、起動ログに警告が 1 回出る  
+この読み替えは仕様からの意図的な逸脱で、IdP が新しい scope を発行するようになったら削除する
 
 `-e` で得た `event_access` トークンは形式としては Gateway の要求を満たすが、登録表に `external=event_access` の RPC が 1 つも無いため、どの RPC でも `token_use_mismatch` になる
 
