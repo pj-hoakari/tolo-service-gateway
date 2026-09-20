@@ -12,10 +12,13 @@ import (
 	"time"
 
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
+	"google.golang.org/protobuf/reflect/protoregistry"
 
+	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/httpapi"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/logging"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/telemetry"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/token"
 )
@@ -58,6 +61,16 @@ func run() error {
 	slog.Info("gateway configuration loaded", configLogAttrs(cfg)...)
 	slog.Warn("workload authentication is not implemented yet; do not deploy this build to a production-like environment")
 
+	rpcRegistry, err := buildRegistry(cfg)
+	if err != nil {
+		return err
+	}
+
+	slog.Info("rpc registry built",
+		"procedures", len(rpcRegistry.Entries()),
+		"destinations", rpcRegistry.Destinations(),
+	)
+
 	internalIssuer, signingKeys, err := token.NewIssuerFromFiles(cfg.IssuerID, internalJWTKeyFiles(cfg))
 	if err != nil {
 		return fmt.Errorf("build internal JWT issuer: %w", err)
@@ -80,6 +93,7 @@ func run() error {
 		httpapi.HealthRoutes(readiness),
 		httpapi.PublicRoutes(httpapi.NewJWKSHandler(internalIssuer)),
 		httpapi.WorkloadRoutes(),
+		httpapi.FallbackRoutes(),
 	)
 
 	httpServer := &http.Server{
@@ -119,6 +133,24 @@ func run() error {
 	}
 }
 
+func buildRegistry(cfg config.Config) (*registry.Registry, error) {
+	rpcRegistry, err := registry.Build(catalog.Bindings(), catalog.Overrides(), protoregistry.GlobalFiles)
+	if err != nil {
+		return nil, fmt.Errorf("build the RPC registry: %w", err)
+	}
+
+	destinations, err := registry.LoadDestinations(cfg.DestinationsFile)
+	if err != nil {
+		return nil, fmt.Errorf("load the destinations: %w", err)
+	}
+
+	if err := rpcRegistry.CheckDestinations(destinations); err != nil {
+		return nil, fmt.Errorf("check the destinations: %w", err)
+	}
+
+	return rpcRegistry, nil
+}
+
 func internalJWTKeyFiles(cfg config.Config) token.FileKeys {
 	published := make([]issuer.KeyFile, 0, len(cfg.PublishedKeys))
 
@@ -145,6 +177,7 @@ func configLogAttrs(cfg config.Config) []any {
 		"signing_key_file", cfg.SigningKey.Path,
 		"signing_kid", cfg.SigningKey.ID,
 		"published_kids", publishedKeyIDs,
+		"destinations_file", cfg.DestinationsFile,
 	}
 
 	if cfg.IDPIssuer != "" {

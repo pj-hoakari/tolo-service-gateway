@@ -15,6 +15,7 @@ const (
 	envSigningKeyID      = "INTERNAL_JWT_SIGNING_KEY_ID"
 	envPublishedKeyFiles = "INTERNAL_JWT_PUBLISHED_KEY_FILES"
 	envIDPIssuer         = "IDP_ISSUER"
+	envDestinationsFile  = "TOLO_GATEWAY_DESTINATIONS_FILE"
 )
 
 const publishedKeySeparator = "="
@@ -25,11 +26,12 @@ type KeyFile struct {
 }
 
 type Config struct {
-	ListenAddr    string
-	IssuerID      string
-	SigningKey    KeyFile
-	PublishedKeys []KeyFile
-	IDPIssuer     string
+	ListenAddr       string
+	IssuerID         string
+	SigningKey       KeyFile
+	PublishedKeys    []KeyFile
+	IDPIssuer        string
+	DestinationsFile string
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -42,6 +44,7 @@ func Load(getenv func(string) string) (Config, error) {
 	signingKeyFile := getenv(envSigningKeyFile)
 	signingKeyID := getenv(envSigningKeyID)
 	idpIssuer := getenv(envIDPIssuer)
+	destinationsFile := getenv(envDestinationsFile)
 
 	var errs []error
 
@@ -55,6 +58,10 @@ func Load(getenv func(string) string) (Config, error) {
 
 	if signingKeyID == "" {
 		errs = append(errs, missingEnvError(envSigningKeyID))
+	}
+
+	if destinationsFile == "" {
+		errs = append(errs, missingEnvError(envDestinationsFile))
 	}
 
 	publishedKeys, err := parsePublishedKeys(getenv(envPublishedKeyFiles), signingKeyID)
@@ -73,11 +80,12 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	return Config{
-		ListenAddr:    listenAddr,
-		IssuerID:      issuerID,
-		SigningKey:    KeyFile{ID: signingKeyID, Path: signingKeyFile},
-		PublishedKeys: publishedKeys,
-		IDPIssuer:     idpIssuer,
+		ListenAddr:       listenAddr,
+		IssuerID:         issuerID,
+		SigningKey:       KeyFile{ID: signingKeyID, Path: signingKeyFile},
+		PublishedKeys:    publishedKeys,
+		IDPIssuer:        idpIssuer,
+		DestinationsFile: destinationsFile,
 	}, nil
 }
 

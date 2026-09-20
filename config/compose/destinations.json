@@ -1,0 +1,5 @@
+{
+  "destinations": {
+    "tolo-testbackend": { "url": "http://testbackend:8080" }
+  }
+}

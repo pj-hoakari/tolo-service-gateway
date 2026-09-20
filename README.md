@@ -40,16 +40,23 @@ task up:build
 返すのは署名鍵と `INTERNAL_JWT_PUBLISHED_KEY_FILES` の公開鍵で、秘密鍵成分（`d`）は含まない  
 応答には `Cache-Control: public, max-age=300` と本文から導いた ETag が付き、同じ ETag を `If-None-Match` で送れば 304 を返す
 
+`server` は起動時に RPC 登録表（公開 proto の認可ポリシーと宛先の束縛）を導出し、宛先設定と突き合わせるが、転送はまだ行わない  
+そのため現段階では、未知の RPC も登録済みの RPC も `unimplemented` を返す  
+Connect・gRPC・gRPC-Web のいずれかとして解釈できる POST には、その形式に合わせたエラーを返し、それ以外の要求（GET を含む）には 404 を返す
+
 `testbackend`（`http://localhost:8081`）は `server` の JWKS を取得して内部 JWT を検証するテスト用の後段サービスで、`jwtgen` で作った JWKS を配る手順の代わりになる  
+`greet.v1.GreetService/Greet` は内部 JWT を要求するが、`greet.v1.GreetService/Ping` は匿名で呼べる  
 現段階の `server` にはまだ業務 RPC の入口が無く、内部 JWT を発行させる経路が無いため、手元で確認できるのはトークンなしの呼び出しが `unauthenticated` になることまでになる
 
 ```bash
 curl http://localhost:8080/.well-known/jwks.json
 
 curl -X POST -H 'Content-Type: application/json' -d '{"name":"tolo"}' http://localhost:8081/greet.v1.GreetService/Greet
+
+curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8081/greet.v1.GreetService/Ping
 ```
 
-前者は kid `dev-key-1` を含む JWKS を返し、後者は `{"code":"unauthenticated"}` を返す
+上から順に、kid `dev-key-1` を含む JWKS、`{"code":"unauthenticated"}`、`{"message":"pong"}` を返す
 
 #### 環境変数
 
@@ -61,9 +68,28 @@ curl -X POST -H 'Content-Type: application/json' -d '{"name":"tolo"}' http://loc
 | `INTERNAL_JWT_SIGNING_KEY_ID` | 必須 | なし | 署名鍵の kid。発行する内部 JWT のヘッダと公開 JWKS に載る |
 | `INTERNAL_JWT_PUBLISHED_KEY_FILES` | 任意 | なし | 署名鍵に加えて JWKS へ載せる公開鍵。`kid=パス` をカンマ区切りで並べる（例 `next-key=/etc/tolo/keys/next.pub.pem,old-key=/etc/tolo/keys/old.pub.pem`）。kid は署名鍵のものを含めて重複させられない |
 | `IDP_ISSUER` | 任意 | なし | 外部 IdP の issuer。`INTERNAL_JWT_ISSUER` と同じ値は設定エラーになる。外部トークン経路を実装する段階で必須にする |
+| `TOLO_GATEWAY_DESTINATIONS_FILE` | 必須 | なし | 宛先設定ファイル（JSON）のパス。起動時に読み込み、読めない・形式が不正・RPC 登録表と噛み合わない場合は起動に失敗する |
 
 必須の変数が欠けている場合は設定エラーとして起動に失敗する  
 compose を使わずに起動する場合、開発用の署名鍵は `openssl ecparam -name prime256v1 -genkey -noout -out <path>` で生成できる（鍵ファイルはリポジトリに置かない）
+
+#### 宛先設定ファイル
+
+`TOLO_GATEWAY_DESTINATIONS_FILE` が指す JSON は、論理サービスID（内部 JWT の aud と同じ名前体系）から後段の接続 URL への対応を持つ
+
+```json
+{
+  "destinations": {
+    "tolo-testbackend": { "url": "http://testbackend:8080" }
+  }
+}
+```
+
+未知のフィールドと、最上位オブジェクトより後ろにある余分なデータは受け付けない  
+`destinations` が無い・空、論理サービスIDが空文字、`url` が空はいずれもエラーになる  
+`url` の scheme は `http` か `https`、host は必須で、userinfo・query・fragment は持てず、path は空か `/` だけ許す  
+RPC 登録表が参照する宛先が設定に無い場合も、設定にあるが登録表から参照されない宛先がある場合もエラーになる  
+compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destinations.json` へ読み込み専用でマウントしている
 
 #### 配備についての注意
 
