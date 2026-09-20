@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
-func TestSetupWithoutEndpointKeepsTracingNoop(t *testing.T) {
+func TestSetupWithoutEndpointStillRecordsSpans(t *testing.T) {
 	clearOTLPEndpoints(t)
 
 	shutdown, err := telemetry.Setup(context.Background())
@@ -25,12 +26,21 @@ func TestSetupWithoutEndpointKeepsTracingNoop(t *testing.T) {
 		t.Fatalf("Setup() error = %v", err)
 	}
 
+	t.Cleanup(func() { otel.SetTracerProvider(noop.NewTracerProvider()) })
+
 	if telemetry.Enabled() {
 		t.Error("Enabled() = true, want false without an OTLP endpoint")
 	}
 
-	if _, ok := otel.GetTracerProvider().(noop.TracerProvider); !ok {
-		t.Errorf("tracer provider = %T, want noop.TracerProvider", otel.GetTracerProvider())
+	if _, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider); !ok {
+		t.Errorf("tracer provider = %T, want *sdktrace.TracerProvider", otel.GetTracerProvider())
+	}
+
+	_, span := otel.GetTracerProvider().Tracer("telemetry_test").Start(context.Background(), "probe")
+	defer span.End()
+
+	if !span.SpanContext().IsValid() {
+		t.Errorf("span context = %v, want a valid one without an OTLP endpoint", span.SpanContext())
 	}
 
 	if fields := otel.GetTextMapPropagator().Fields(); !slices.Contains(fields, "traceparent") {
@@ -101,7 +111,9 @@ func TestSetupReportsInternalErrorsThroughSlog(t *testing.T) {
 
 	var entry map[string]any
 
-	if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &entry); err != nil {
+	lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &entry); err != nil {
 		t.Fatalf("unmarshal %q: %v", logs.String(), err)
 	}
 
