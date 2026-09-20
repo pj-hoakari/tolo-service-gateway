@@ -58,7 +58,7 @@ func run() error {
 	slog.Info("gateway configuration loaded", configLogAttrs(cfg)...)
 	slog.Warn("workload authentication is not implemented yet; do not deploy this build to a production-like environment")
 
-	_, signingKeys, err := token.NewIssuerFromFiles(cfg.IssuerID, internalJWTKeyFiles(cfg))
+	internalIssuer, signingKeys, err := token.NewIssuerFromFiles(cfg.IssuerID, internalJWTKeyFiles(cfg))
 	if err != nil {
 		return fmt.Errorf("build internal JWT issuer: %w", err)
 	}
@@ -76,9 +76,15 @@ func run() error {
 	readiness := httpapi.NewReadiness()
 	readiness.Register(signingKeyReadinessCheck, signingKeyCheck(signingKeys))
 
+	handler := httpapi.NewHandler(
+		httpapi.HealthRoutes(readiness),
+		httpapi.PublicRoutes(httpapi.NewJWKSHandler(internalIssuer)),
+		httpapi.WorkloadRoutes(),
+	)
+
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           httpapi.NewHandler(readiness),
+		Handler:           handler,
 		ReadHeaderTimeout: readHeaderTimeout,
 		// net/http reports its own failures (a broken connection, a panic in a
 		// handler) through this logger, so it goes to the same structured

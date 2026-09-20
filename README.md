@@ -25,9 +25,13 @@ task up:build
 ```
 
 サーバーは `http://localhost:8080` で待ち受ける（停止は `task down`）  
-現段階の `server` が公開するのは `/healthz`（liveness）と `/readyz`（readiness）だけで、業務 RPC はまだ受け付けない  
+現段階の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）と公開 JWKS だけで、業務 RPC はまだ受け付けない  
 `/healthz` はプロセスが応答できる限り 200 を返す  
-`/readyz` は登録された準備チェックがすべて成功したときだけ 200 を返し、1 つでも失敗すれば 503 を返す（失敗の内容は応答本文には出さず、サーバー側のログにだけ記録する）
+`/readyz` は登録された準備チェックがすべて成功したときだけ 200 を返し、1 つでも失敗すれば 503 を返す（失敗の内容は応答本文には出さず、サーバー側のログにだけ記録する）  
+`/.well-known/jwks.json` は内部 JWT の署名検証用公開鍵を JWKS として返す  
+この経路は認証不要で、`Authorization`・`workload-authorization`・`X-Serverless-Authorization`・`DPoP` のどの認証ヘッダが付いていても内容は変わらず、identity も作らない  
+返すのは署名鍵と `INTERNAL_JWT_PUBLISHED_KEY_FILES` の公開鍵で、秘密鍵成分（`d`）は含まない  
+応答には `Cache-Control: public, max-age=300` と本文から導いた ETag が付き、同じ ETag を `If-None-Match` で送れば 304 を返す
 
 #### 環境変数
 
