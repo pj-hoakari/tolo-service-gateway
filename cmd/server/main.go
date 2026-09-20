@@ -16,6 +16,8 @@ import (
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/forward"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/forwardgen"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/httpapi"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/logging"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
@@ -31,7 +33,10 @@ const (
 
 const signingKeyReadinessCheck = "internal-jwt-signing-key"
 
-var errSigningKeyNotLoaded = errors.New("the internal JWT signing key is not loaded")
+var (
+	errSigningKeyNotLoaded = errors.New("the internal JWT signing key is not loaded")
+	errUnexpectedTransport = errors.New("the default HTTP transport is not an *http.Transport")
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -61,7 +66,7 @@ func run() error {
 	slog.Info("gateway configuration loaded", configLogAttrs(cfg)...)
 	slog.Warn("workload authentication is not implemented yet; do not deploy this build to a production-like environment")
 
-	rpcRegistry, err := buildRegistry(cfg)
+	rpcRegistry, destinations, err := buildRegistry(cfg)
 	if err != nil {
 		return err
 	}
@@ -70,6 +75,11 @@ func run() error {
 		"procedures", len(rpcRegistry.Entries()),
 		"destinations", rpcRegistry.Destinations(),
 	)
+
+	rpcHandlers, err := buildRPCHandlers(destinations)
+	if err != nil {
+		return err
+	}
 
 	internalIssuer, signingKeys, err := token.NewIssuerFromFiles(cfg.IssuerID, internalJWTKeyFiles(cfg))
 	if err != nil {
@@ -93,6 +103,7 @@ func run() error {
 		httpapi.HealthRoutes(readiness),
 		httpapi.PublicRoutes(httpapi.NewJWKSHandler(internalIssuer)),
 		httpapi.WorkloadRoutes(),
+		httpapi.RPCRoutes(rpcRegistry, rpcHandlers),
 		httpapi.FallbackRoutes(),
 	)
 
@@ -133,22 +144,42 @@ func run() error {
 	}
 }
 
-func buildRegistry(cfg config.Config) (*registry.Registry, error) {
+func buildRegistry(cfg config.Config) (*registry.Registry, registry.Destinations, error) {
 	rpcRegistry, err := registry.Build(catalog.Bindings(), catalog.Overrides(), protoregistry.GlobalFiles)
 	if err != nil {
-		return nil, fmt.Errorf("build the RPC registry: %w", err)
+		return nil, nil, fmt.Errorf("build the RPC registry: %w", err)
 	}
 
 	destinations, err := registry.LoadDestinations(cfg.DestinationsFile)
 	if err != nil {
-		return nil, fmt.Errorf("load the destinations: %w", err)
+		return nil, nil, fmt.Errorf("load the destinations: %w", err)
 	}
 
 	if err := rpcRegistry.CheckDestinations(destinations); err != nil {
-		return nil, fmt.Errorf("check the destinations: %w", err)
+		return nil, nil, fmt.Errorf("check the destinations: %w", err)
 	}
 
-	return rpcRegistry, nil
+	return rpcRegistry, destinations, nil
+}
+
+func buildRPCHandlers(destinations registry.Destinations) (map[string]http.Handler, error) {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errUnexpectedTransport
+	}
+
+	handlers, err := forward.Handlers(
+		catalog.Bindings(),
+		destinations,
+		forwardgen.Mounts(),
+		forward.NewHTTPClient(transport.Clone()),
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("build the RPC handlers: %w", err)
+	}
+
+	return handlers, nil
 }
 
 func internalJWTKeyFiles(cfg config.Config) token.FileKeys {
