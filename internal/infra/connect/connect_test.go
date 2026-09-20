@@ -127,7 +127,7 @@ func newAuthenticator() *authn.Authenticator {
 	return authn.NewAuthenticator(fakeVerifier{tokens: map[string]authn.ExternalToken{
 		acceptedToken:  externalToken(greetScope),
 		scopelessToken: externalToken(""),
-	}})
+	}}, nil)
 }
 
 type unavailableVerifier struct{}
@@ -953,7 +953,7 @@ func TestPipelineAnswersAnUnavailableVerifierWithoutBlamingTheUpstream(t *testin
 		t,
 		map[string]http.Handler{greetMountPath: mounted},
 		0,
-		authn.NewAuthenticator(unavailableVerifier{}),
+		authn.NewAuthenticator(unavailableVerifier{}, nil),
 		stubIssuer{issued: issuer.Issued{}, err: nil},
 	)
 

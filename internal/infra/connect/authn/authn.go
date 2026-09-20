@@ -36,6 +36,7 @@ const (
 	ReasonTokenUseMismatch             = "token_use_mismatch" //nolint:gosec // an audit vocabulary word, not a credential
 	ReasonMissingScope                 = "missing_scope"
 	ReasonIntrospectionUnavailable     = "introspection_unavailable"
+	ReasonTokenRevoked                 = "token_revoked"
 )
 
 var ErrVerifierUnavailable = errors.New("authn: the external token verifier is unavailable")
@@ -56,6 +57,10 @@ type ExternalVerifier interface {
 	Verify(ctx context.Context, token string) (ExternalToken, error)
 }
 
+type Introspector interface {
+	Active(ctx context.Context, token string, verified ExternalToken) (bool, error)
+}
+
 type Rejection struct {
 	Code   connectrpc.Code
 	Reason string
@@ -66,11 +71,12 @@ type Result struct {
 }
 
 type Authenticator struct {
-	verifier ExternalVerifier
+	verifier     ExternalVerifier
+	introspector Introspector
 }
 
-func NewAuthenticator(verifier ExternalVerifier) *Authenticator {
-	return &Authenticator{verifier: verifier}
+func NewAuthenticator(verifier ExternalVerifier, introspector Introspector) *Authenticator {
+	return &Authenticator{verifier: verifier, introspector: introspector}
 }
 
 func (a *Authenticator) Authenticate(ctx context.Context, header http.Header, entry registry.Entry) (Result, *Rejection) {
@@ -109,7 +115,7 @@ func (a *Authenticator) external(ctx context.Context, values []string, entry reg
 		return anonymousResult(), unauthenticated(ReasonSenderConstrainedUnsupported)
 	}
 
-	return Result{External: &verified}, authorize(verified, entry)
+	return Result{External: &verified}, a.authorize(ctx, token, verified, entry)
 }
 
 func verificationRejection(ctx context.Context, err error) *Rejection {
@@ -122,7 +128,7 @@ func verificationRejection(ctx context.Context, err error) *Rejection {
 	return unauthenticated(ReasonInvalidToken)
 }
 
-func authorize(token ExternalToken, entry registry.Entry) *Rejection {
+func (a *Authenticator) authorize(ctx context.Context, raw string, token ExternalToken, entry registry.Entry) *Rejection {
 	if len(entry.ExternalTokenUses) == 0 {
 		if entry.Service {
 			return &Rejection{Code: connectrpc.CodePermissionDenied, Reason: ReasonInternalOnly}
@@ -144,7 +150,26 @@ func authorize(token ExternalToken, entry registry.Entry) *Rejection {
 	}
 
 	if entry.Introspection {
+		return a.introspect(ctx, raw, token)
+	}
+
+	return nil
+}
+
+func (a *Authenticator) introspect(ctx context.Context, raw string, token ExternalToken) *Rejection {
+	if a.introspector == nil {
 		return unauthenticated(ReasonIntrospectionUnavailable)
+	}
+
+	active, err := a.introspector.Active(ctx, raw, token)
+	if err != nil {
+		slog.WarnContext(ctx, "asking the IdP whether the external token is active failed", "error", err)
+
+		return unauthenticated(ReasonIntrospectionUnavailable)
+	}
+
+	if !active {
+		return unauthenticated(ReasonTokenRevoked)
 	}
 
 	return nil

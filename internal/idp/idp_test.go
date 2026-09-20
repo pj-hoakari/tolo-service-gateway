@@ -30,6 +30,9 @@ const (
 	testSubject  = "user-1"
 	testClientID = "admin-ui"
 	testScope    = "greeting.read tenant.read"
+
+	testIntrospectionClientID   = "gateway-introspection"
+	testIntrospectionCredential = "introspection-client-credential"
 )
 
 const retryDelay = 5 * time.Millisecond
@@ -44,10 +47,14 @@ var signingKey = sync.OnceValue(func() *rsa.PrivateKey {
 })
 
 type stubIDP struct {
-	issuer         string
-	declaredIssuer atomic.Value
-	metadataStatus atomic.Int64
-	jwksStatus     atomic.Int64
+	issuer            string
+	declaredIssuer    atomic.Value
+	metadataStatus    atomic.Int64
+	jwksStatus        atomic.Int64
+	introspectStatus  atomic.Int64
+	omitIntrospection atomic.Bool
+	inactive          atomic.Bool
+	introspections    atomic.Int64
 }
 
 func newStubIDP(t *testing.T) *stubIDP {
@@ -63,6 +70,7 @@ func newStubIDP(t *testing.T) *stubIDP {
 	mux.HandleFunc("GET /.well-known/openid-configuration", stub.handleMetadata)
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", stub.handleMetadata)
 	mux.HandleFunc("GET /jwks", stub.handleJWKS)
+	mux.HandleFunc("POST /introspect", stub.handleIntrospect)
 
 	server.Config.Handler = mux
 	server.Start()
@@ -79,11 +87,28 @@ func (s *stubIDP) handleMetadata(w http.ResponseWriter, _ *http.Request) {
 
 	declared, _ := s.declaredIssuer.Load().(string)
 
-	writeJSON(w, map[string]any{
-		"issuer":                 declared,
-		"jwks_uri":               s.issuer + "/jwks",
-		"introspection_endpoint": s.issuer + "/introspect",
-	})
+	document := map[string]any{
+		"issuer":   declared,
+		"jwks_uri": s.issuer + "/jwks",
+	}
+
+	if !s.omitIntrospection.Load() {
+		document["introspection_endpoint"] = s.issuer + "/introspect"
+	}
+
+	writeJSON(w, document)
+}
+
+func (s *stubIDP) handleIntrospect(w http.ResponseWriter, _ *http.Request) {
+	s.introspections.Add(1)
+
+	if status := s.introspectStatus.Load(); status != 0 {
+		w.WriteHeader(int(status))
+
+		return
+	}
+
+	writeJSON(w, map[string]any{"active": !s.inactive.Load()})
 }
 
 func (s *stubIDP) handleJWKS(w http.ResponseWriter, _ *http.Request) {
@@ -166,6 +191,114 @@ func runProvider(t *testing.T, stub *stubIDP) *idp.Provider {
 	}
 
 	return provider
+}
+
+func newIntrospectingProvider(t *testing.T, stub *stubIDP) *idp.Provider {
+	t.Helper()
+
+	provider, err := idp.New(idp.Config{
+		Issuer:                    stub.issuer,
+		Audience:                  testAudience,
+		RetryDelay:                retryDelay,
+		IntrospectionClientID:     testIntrospectionClientID,
+		IntrospectionClientSecret: testIntrospectionCredential,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+
+	return provider
+}
+
+func verifiedToken() authn.ExternalToken {
+	return authn.ExternalToken{
+		Subject:   testSubject,
+		JTI:       "external-jti-1",
+		ExpiresAt: time.Now().Add(5 * time.Minute),
+	}
+}
+
+func TestProviderAsksTheIDPWhetherTheTokenIsActive(t *testing.T) {
+	t.Parallel()
+
+	stub := newStubIDP(t)
+	provider := newIntrospectingProvider(t, stub)
+
+	if err := provider.Run(t.Context()); err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+
+	active, err := provider.Active(t.Context(), stub.sign(t, stub.claims()), verifiedToken())
+	if err != nil {
+		t.Fatalf("Active() error = %v, want nil", err)
+	}
+
+	if !active {
+		t.Error("Active() = false, want true for a token the IdP reports as active")
+	}
+
+	if got := stub.introspections.Load(); got != 1 {
+		t.Errorf("introspection requests = %d, want 1", got)
+	}
+}
+
+func TestProviderReportsAnIntrospectionItCannotMake(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]func(t *testing.T, stub *stubIDP) *idp.Provider{
+		"before the metadata is resolved": func(t *testing.T, stub *stubIDP) *idp.Provider {
+			t.Helper()
+
+			return newIntrospectingProvider(t, stub)
+		},
+		"without introspection configured": func(t *testing.T, stub *stubIDP) *idp.Provider {
+			t.Helper()
+
+			return runProvider(t, stub)
+		},
+		"with an endpoint that fails": func(t *testing.T, stub *stubIDP) *idp.Provider {
+			t.Helper()
+
+			provider := newIntrospectingProvider(t, stub)
+
+			if err := provider.Run(t.Context()); err != nil {
+				t.Fatalf("Run() error = %v, want nil", err)
+			}
+
+			stub.introspectStatus.Store(http.StatusServiceUnavailable)
+
+			return provider
+		},
+	}
+
+	for name, build := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			stub := newStubIDP(t)
+			provider := build(t, stub)
+
+			active, err := provider.Active(t.Context(), stub.sign(t, stub.claims()), verifiedToken())
+			if !errors.Is(err, externaltoken.ErrIntrospectionUnavailable) {
+				t.Fatalf("Active() error = %v, want %v", err, externaltoken.ErrIntrospectionUnavailable)
+			}
+
+			if active {
+				t.Error("Active() = true, want false when the IdP cannot be asked")
+			}
+		})
+	}
+}
+
+func TestRunStopsWhenTheIDPHasNoIntrospectionEndpoint(t *testing.T) {
+	t.Parallel()
+
+	stub := newStubIDP(t)
+	stub.omitIntrospection.Store(true)
+
+	if err := newIntrospectingProvider(t, stub).Run(t.Context()); !errors.Is(err, idp.ErrInvalidConfig) {
+		t.Errorf("Run() error = %v, want %v", err, idp.ErrInvalidConfig)
+	}
 }
 
 func TestNewRejectsAnIncompleteConfig(t *testing.T) {

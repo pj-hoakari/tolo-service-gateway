@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,7 +38,10 @@ const (
 	sourceID = "external-jti-1"
 )
 
-var errUnknownToken = errors.New("unknown token")
+var (
+	errUnknownToken        = errors.New("unknown token")
+	errIntrospectionFailed = errors.New("the IdP cannot be reached")
+)
 
 type fakeVerifier struct {
 	tokens map[string]authn.ExternalToken
@@ -85,7 +89,7 @@ func newAuthenticator() *authn.Authenticator {
 			scopelessToken:   externalToken("tenant_access", ""),
 		},
 		err: nil,
-	})
+	}, nil)
 }
 
 func lookup(t *testing.T, procedure string) registry.Entry {
@@ -318,32 +322,160 @@ func TestAuthenticateNamesTheReason(t *testing.T) {
 	}
 }
 
-func TestAuthenticateRejectsProceduresThatNeedIntrospection(t *testing.T) {
-	t.Parallel()
+type fakeIntrospector struct {
+	active bool
+	err    error
+	calls  *atomic.Int64
+	tokens chan string
+}
 
-	entry := registry.Entry{
+func newFakeIntrospector(active bool, err error) fakeIntrospector {
+	return fakeIntrospector{active: active, err: err, calls: &atomic.Int64{}, tokens: make(chan string, 4)}
+}
+
+func (i fakeIntrospector) Active(_ context.Context, token string, _ authn.ExternalToken) (bool, error) {
+	i.calls.Add(1)
+
+	select {
+	case i.tokens <- token:
+	default:
+	}
+
+	if i.err != nil {
+		return false, i.err
+	}
+
+	return i.active, nil
+}
+
+func introspectionEntry(scope string) registry.Entry {
+	return registry.Entry{
 		Procedure:         "/tolo.tenant.v1.TenantService/ArchiveTenant",
 		Destination:       "tolo-tenant-management",
 		Anonymous:         false,
 		ExternalTokenUses: []string{"tenant_access"},
 		Service:           false,
-		RequiredScopes:    []string{"tenant.manage"},
+		RequiredScopes:    []string{scope},
 		Introspection:     true,
 	}
+}
+
+func TestAuthenticateAsksTheIDPWhetherTheTokenIsActive(t *testing.T) {
+	t.Parallel()
 
 	tests := map[string]struct {
-		scope      string
+		active     bool
+		err        error
 		wantCode   connectrpc.Code
 		wantReason string
 	}{
-		"a token with every required scope": {
-			scope:      "tenant.manage",
+		"an active token": {
+			active:     true,
+			err:        nil,
+			wantCode:   0,
+			wantReason: "",
+		},
+		"a revoked token": {
+			active:     false,
+			err:        nil,
+			wantCode:   connectrpc.CodeUnauthenticated,
+			wantReason: authn.ReasonTokenRevoked,
+		},
+		"an IdP that cannot be asked": {
+			active:     false,
+			err:        errIntrospectionFailed,
 			wantCode:   connectrpc.CodeUnauthenticated,
 			wantReason: authn.ReasonIntrospectionUnavailable,
 		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			introspector := newFakeIntrospector(test.active, test.err)
+
+			authenticator := authn.NewAuthenticator(fakeVerifier{
+				tokens: map[string]authn.ExternalToken{
+					acceptedToken: externalToken("tenant_access", "tenant.manage"),
+				},
+				err: nil,
+			}, introspector)
+
+			_, rejection := authenticator.Authenticate(
+				t.Context(),
+				headerWith(bearer(acceptedToken)),
+				introspectionEntry("tenant.manage"),
+			)
+
+			switch {
+			case test.wantReason == "" && rejection != nil:
+				t.Fatalf("Authenticate() rejected the request with %q, want it accepted", rejection.Reason)
+			case test.wantReason != "" && rejection == nil:
+				t.Fatal("Authenticate() accepted the request, want it rejected")
+			case rejection != nil:
+				if rejection.Code != test.wantCode {
+					t.Errorf("code = %v, want %v", rejection.Code, test.wantCode)
+				}
+
+				if rejection.Reason != test.wantReason {
+					t.Errorf("reason = %q, want %q", rejection.Reason, test.wantReason)
+				}
+			}
+
+			if got := introspector.calls.Load(); got != 1 {
+				t.Errorf("introspection calls = %d, want 1", got)
+			}
+
+			if got := <-introspector.tokens; got != acceptedToken {
+				t.Errorf("introspected token = %q, want the token the request carried", got)
+			}
+		})
+	}
+}
+
+func TestAuthenticateRejectsProceduresThatNeedIntrospectionWithoutAnIntrospector(t *testing.T) {
+	t.Parallel()
+
+	authenticator := authn.NewAuthenticator(fakeVerifier{
+		tokens: map[string]authn.ExternalToken{
+			acceptedToken: externalToken("tenant_access", "tenant.manage"),
+		},
+		err: nil,
+	}, nil)
+
+	_, rejection := authenticator.Authenticate(
+		t.Context(),
+		headerWith(bearer(acceptedToken)),
+		introspectionEntry("tenant.manage"),
+	)
+
+	if rejection == nil {
+		t.Fatal("Authenticate() accepted the request, want it rejected")
+	}
+
+	if rejection.Code != connectrpc.CodeUnauthenticated {
+		t.Errorf("code = %v, want %v", rejection.Code, connectrpc.CodeUnauthenticated)
+	}
+
+	if rejection.Reason != authn.ReasonIntrospectionUnavailable {
+		t.Errorf("reason = %q, want %q", rejection.Reason, authn.ReasonIntrospectionUnavailable)
+	}
+}
+
+func TestAuthenticateLeavesTheIDPAloneWhenItCannotChangeTheOutcome(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		entry      registry.Entry
+		wantReason string
+	}{
+		"a procedure that does not need introspection": {
+			entry:      lookup(t, authenticatedProcedure),
+			wantReason: "",
+		},
 		"a token without the required scope": {
-			scope:      "tenant.read",
-			wantCode:   connectrpc.CodePermissionDenied,
+			entry:      introspectionEntry("tenant.manage"),
 			wantReason: authn.ReasonMissingScope,
 		},
 	}
@@ -352,25 +484,28 @@ func TestAuthenticateRejectsProceduresThatNeedIntrospection(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
+			introspector := newFakeIntrospector(true, nil)
+
 			authenticator := authn.NewAuthenticator(fakeVerifier{
 				tokens: map[string]authn.ExternalToken{
-					acceptedToken: externalToken("tenant_access", test.scope),
+					acceptedToken: externalToken("tenant_access", "greeting.read"),
 				},
 				err: nil,
-			})
+			}, introspector)
 
-			_, rejection := authenticator.Authenticate(t.Context(), headerWith(bearer(acceptedToken)), entry)
+			_, rejection := authenticator.Authenticate(t.Context(), headerWith(bearer(acceptedToken)), test.entry)
 
-			if rejection == nil {
+			switch {
+			case test.wantReason == "" && rejection != nil:
+				t.Fatalf("Authenticate() rejected the request with %q, want it accepted", rejection.Reason)
+			case test.wantReason != "" && rejection == nil:
 				t.Fatal("Authenticate() accepted the request, want it rejected")
-			}
-
-			if rejection.Code != test.wantCode {
-				t.Errorf("code = %v, want %v", rejection.Code, test.wantCode)
-			}
-
-			if rejection.Reason != test.wantReason {
+			case rejection != nil && rejection.Reason != test.wantReason:
 				t.Errorf("reason = %q, want %q", rejection.Reason, test.wantReason)
+			}
+
+			if got := introspector.calls.Load(); got != 0 {
+				t.Errorf("introspection calls = %d, want none", got)
 			}
 		})
 	}
@@ -438,7 +573,7 @@ func TestAuthenticateRejectsExternalTokensWithoutAVerifier(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, rejection := authn.NewAuthenticator(nil).Authenticate(
+			_, rejection := authn.NewAuthenticator(nil, nil).Authenticate(
 				t.Context(),
 				headerWith(bearer(acceptedToken)),
 				lookup(t, procedure),
@@ -483,7 +618,7 @@ func TestAuthenticateReportsAnUnavailableVerifier(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			authenticator := authn.NewAuthenticator(fakeVerifier{tokens: nil, err: test.err})
+			authenticator := authn.NewAuthenticator(fakeVerifier{tokens: nil, err: test.err}, nil)
 
 			_, rejection := authenticator.Authenticate(
 				t.Context(),
@@ -555,7 +690,7 @@ func TestAuthenticateMatchesScopesWhole(t *testing.T) {
 					acceptedToken: externalToken("tenant_access", test.scope),
 				},
 				err: nil,
-			})
+			}, nil)
 
 			_, rejection := authenticator.Authenticate(t.Context(), headerWith(bearer(acceptedToken)), entry)
 
