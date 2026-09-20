@@ -16,12 +16,39 @@ import (
 const defaultUpstreamTimeout = 30 * time.Second
 
 const (
-	reasonUpstreamUnreachable = "upstream_unreachable"
-	reasonUpstreamInternal    = "upstream_internal"
-	reasonUpstreamError       = "upstream_error"
-	reasonCanceled            = "canceled"
-	reasonDeadlineExceeded    = "deadline_exceeded"
+	reasonUpstreamUnreachable           = "upstream_unreachable"
+	reasonUpstreamInternal              = "upstream_internal"
+	reasonUpstreamError                 = "upstream_error"
+	reasonUpstreamRejectedInternalToken = "upstream_rejected_internal_token"
+	reasonCanceled                      = "canceled"
+	reasonDeadlineExceeded              = "deadline_exceeded"
 )
+
+const authorizationHeader = "Authorization"
+
+type internalTokenKey struct{}
+
+func ContextWithInternalToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, internalTokenKey{}, token)
+}
+
+func internalTokenFrom(ctx context.Context) (string, bool) {
+	token, ok := ctx.Value(internalTokenKey{}).(string)
+
+	return token, ok
+}
+
+func AuthorizationInterceptor() connectrpc.Interceptor {
+	return connectrpc.UnaryInterceptorFunc(func(next connectrpc.UnaryFunc) connectrpc.UnaryFunc {
+		return func(ctx context.Context, req connectrpc.AnyRequest) (connectrpc.AnyResponse, error) {
+			if token, ok := internalTokenFrom(ctx); ok {
+				req.Header().Set(authorizationHeader, "Bearer "+token)
+			}
+
+			return next(ctx, req)
+		}
+	})
+}
 
 type Mount struct {
 	Service string
@@ -96,11 +123,21 @@ func translateError(ctx context.Context, err error) error {
 		return failed(ctx, reasonUpstreamUnreachable, connecterr.Unavailable())
 	}
 
+	if upstream.Code() == connectrpc.CodeUnauthenticated && hasInternalToken(ctx) {
+		return failed(ctx, reasonUpstreamRejectedInternalToken, connecterr.InternalError(ctx, err))
+	}
+
 	if upstream.Code() == connectrpc.CodeUnknown || upstream.Code() == connectrpc.CodeInternal { //nolint:forbidigo // reading the upstream code, not building an internal error
 		return failed(ctx, reasonUpstreamInternal, connecterr.InternalError(ctx, err))
 	}
 
 	return failed(ctx, reasonUpstreamError, relayedError(upstream))
+}
+
+func hasInternalToken(ctx context.Context) bool {
+	_, ok := internalTokenFrom(ctx)
+
+	return ok
 }
 
 func failed(ctx context.Context, reason string, err *connectrpc.Error) error {

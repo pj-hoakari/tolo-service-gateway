@@ -392,6 +392,118 @@ func TestUnaryLeavesTheAuditRecordAloneWhenThereIsNone(t *testing.T) {
 	}
 }
 
+func startAuthorizingUpstream(t *testing.T, ping pingFunc) greetv1connect.GreetServiceClient {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	path, handler := greetv1connect.NewGreetServiceHandler(stubGreetService{
+		UnimplementedGreetServiceHandler: greetv1connect.UnimplementedGreetServiceHandler{},
+		ping:                             ping,
+	})
+	mux.Handle(path, handler)
+
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	return greetv1connect.NewGreetServiceClient(
+		forward.NewHTTPClient(http.DefaultTransport),
+		server.URL,
+		connectrpc.WithInterceptors(forward.AuthorizationInterceptor()),
+	)
+}
+
+func TestAuthorizationInterceptorCarriesTheInternalTokenOnly(t *testing.T) {
+	t.Parallel()
+
+	const internalToken = "internal-token-a"
+
+	tests := map[string]struct {
+		ctx  func(context.Context) context.Context
+		want string
+	}{
+		"a call carrying an internal token": {
+			ctx: func(ctx context.Context) context.Context {
+				return forward.ContextWithInternalToken(ctx, internalToken)
+			},
+			want: "Bearer " + internalToken,
+		},
+		"an anonymous call": {
+			ctx:  func(ctx context.Context) context.Context { return ctx },
+			want: "",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			seen := make(chan http.Header, 1)
+
+			client := startAuthorizingUpstream(t, func(_ context.Context, req *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+				seen <- req.Header().Clone()
+
+				return pong(), nil
+			})
+
+			req := connectrpc.NewRequest(&greetv1.PingRequest{})
+			req.Header().Set("Authorization", "Bearer external-token-a")
+
+			if _, err := callPing(test.ctx(t.Context()), client, req); err != nil {
+				t.Fatalf("Unary() error = %v, want nil", err)
+			}
+
+			if got := (<-seen).Get("Authorization"); got != test.want {
+				t.Errorf("upstream Authorization = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestUnaryTreatsAnUpstreamRejectionOfTheInternalTokenAsInternal(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		ctx        func(context.Context) context.Context
+		wantCode   connectrpc.Code
+		wantReason string
+	}{
+		"a call carrying an internal token": {
+			ctx: func(ctx context.Context) context.Context {
+				return forward.ContextWithInternalToken(ctx, "internal-token-a")
+			},
+			wantCode:   connectrpc.CodeInternal, //nolint:forbidigo // the expected code of the translation
+			wantReason: "upstream_rejected_internal_token",
+		},
+		"an anonymous call": {
+			ctx:        func(ctx context.Context) context.Context { return ctx },
+			wantCode:   connectrpc.CodeUnauthenticated,
+			wantReason: "upstream_error",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			client := startAuthorizingUpstream(t, func(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+				return nil, connectrpc.NewError(connectrpc.CodeUnauthenticated, errors.New("the internal JWT was rejected"))
+			})
+
+			record := &audit.Record{}
+
+			_, err := callPing(audit.NewContext(test.ctx(t.Context()), record), client, connectrpc.NewRequest(&greetv1.PingRequest{}))
+
+			if got := connectError(t, err).Code(); got != test.wantCode {
+				t.Errorf("code = %v, want %v", got, test.wantCode)
+			}
+
+			if record.FailureReason != test.wantReason {
+				t.Errorf("failure reason = %q, want %q", record.FailureReason, test.wantReason)
+			}
+		})
+	}
+}
+
 func connectError(t *testing.T, err error) *connectrpc.Error {
 	t.Helper()
 
