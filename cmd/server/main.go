@@ -121,6 +121,7 @@ func run() error {
 			Algorithms:                cfg.IDPAlgorithms,
 			IntrospectionClientID:     cfg.IDPIntrospectionClientID,
 			IntrospectionClientSecret: cfg.IDPIntrospectionSecret,
+			LegacyEventsWriteScope:    cfg.IDPLegacyEventsWriteScope,
 			HTTPClient:                idp.NewHTTPClient(),
 			RetryDelay:                0,
 			Clock:                     nil,
@@ -135,6 +136,10 @@ func run() error {
 			slog.Warn("token introspection is disabled because IDP_INTROSPECTION_CLIENT_ID is not set; the administrative write RPCs are rejected as unauthenticated")
 		} else {
 			introspector = provider
+		}
+
+		if cfg.IDPLegacyEventsWriteScope {
+			slog.Warn("the transitional scope rewrite is enabled by IDP_LEGACY_EVENTS_WRITE_SCOPE; every external token carrying events.write is treated as carrying events.manage, events.operate and events.report; turn it off once the IdP issues the new scopes")
 		}
 
 		authenticator = authn.NewAuthenticator(provider, introspector)
@@ -292,6 +297,7 @@ func configLogAttrs(cfg config.Config) []any {
 			"idp_issuer", cfg.IDPIssuer,
 			"idp_audience", cfg.IDPAudience,
 			"idp_algorithms", cfg.IDPAlgorithms,
+			"idp_legacy_events_write_scope", cfg.IDPLegacyEventsWriteScope,
 		)
 	}
 

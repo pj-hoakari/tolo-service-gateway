@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -35,6 +36,7 @@ type Config struct {
 	Algorithms                []string
 	IntrospectionClientID     string
 	IntrospectionClientSecret string
+	LegacyEventsWriteScope    bool
 	HTTPClient                *http.Client
 	RetryDelay                time.Duration
 	Clock                     func() time.Time
@@ -52,6 +54,7 @@ type Provider struct {
 	algorithms                []string
 	introspectionClientID     string
 	introspectionClientSecret string
+	legacyEventsWriteScope    bool
 	client                    *http.Client
 	retryDelay                time.Duration
 	clock                     func() time.Time
@@ -87,6 +90,7 @@ func New(config Config) (*Provider, error) {
 		algorithms:                slices.Clone(config.Algorithms),
 		introspectionClientID:     config.IntrospectionClientID,
 		introspectionClientSecret: config.IntrospectionClientSecret,
+		legacyEventsWriteScope:    config.LegacyEventsWriteScope,
 		client:                    client,
 		retryDelay:                retryDelay,
 		clock:                     config.Clock,
@@ -225,17 +229,48 @@ func (p *Provider) Verify(ctx context.Context, token string) (authn.ExternalToke
 		return zero, fmt.Errorf("verify the external token: %w", err)
 	}
 
+	scope := claims.Scope
+	if p.legacyEventsWriteScope {
+		scope = expandLegacyEventsWriteScope(scope)
+	}
+
 	return authn.ExternalToken{
 		Subject:           claims.Subject,
 		ClientID:          claims.ClientID,
 		TokenUse:          claims.TokenUse,
-		Scope:             claims.Scope,
+		Scope:             scope,
 		JTI:               claims.JTI,
 		TenantID:          claims.TenantID,
 		EventID:           claims.EventID,
 		ExpiresAt:         claims.ExpiresAt,
 		SenderConstrained: claims.Confirmation != "",
 	}, nil
+}
+
+func expandLegacyEventsWriteScope(scope string) string {
+	const legacyScope = "events.write"
+
+	fields := strings.Fields(scope)
+	if !slices.Contains(fields, legacyScope) {
+		return scope
+	}
+
+	expanded := make([]string, 0, len(fields)+2)
+
+	for _, field := range fields {
+		replacements := []string{field}
+		if field == legacyScope {
+			replacements = []string{"events.manage", "events.operate", "events.report"}
+		}
+
+		for _, replacement := range replacements {
+			if !slices.Contains(expanded, replacement) {
+				expanded = append(expanded, replacement)
+			}
+		}
+	}
+
+	return strings.Join(expanded, " ")
 }
 
 func (p *Provider) Active(ctx context.Context, token string, verified authn.ExternalToken) (bool, error) {

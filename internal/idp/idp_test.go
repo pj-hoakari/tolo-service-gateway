@@ -193,6 +193,98 @@ func runProvider(t *testing.T, stub *stubIDP) *idp.Provider {
 	return provider
 }
 
+func runLegacyScopeProvider(t *testing.T, stub *stubIDP) *idp.Provider {
+	t.Helper()
+
+	provider, err := idp.New(idp.Config{
+		Issuer:                 stub.issuer,
+		Audience:               testAudience,
+		RetryDelay:             retryDelay,
+		LegacyEventsWriteScope: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+
+	if err := provider.Run(t.Context()); err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+
+	return provider
+}
+
+func verifiedScope(t *testing.T, provider *idp.Provider, stub *stubIDP, scope string) string {
+	t.Helper()
+
+	claims := stub.claims()
+	claims["scope"] = scope
+
+	verified, err := provider.Verify(t.Context(), stub.sign(t, claims))
+	if err != nil {
+		t.Fatalf("Verify() error = %v, want nil", err)
+	}
+
+	return verified.Scope
+}
+
+func TestProviderKeepsTheLegacyScopeWhenTheRewriteIsDisabled(t *testing.T) {
+	t.Parallel()
+
+	stub := newStubIDP(t)
+	provider := runProvider(t, stub)
+
+	if got, want := verifiedScope(t, provider, stub, "tenant.read events.write"), "tenant.read events.write"; got != want {
+		t.Errorf("Scope = %q, want %q", got, want)
+	}
+}
+
+func TestProviderRewritesTheLegacyEventsWriteScope(t *testing.T) {
+	t.Parallel()
+
+	stub := newStubIDP(t)
+	provider := runLegacyScopeProvider(t, stub)
+
+	tests := map[string]struct {
+		scope string
+		want  string
+	}{
+		"the legacy scope alone": {
+			scope: "events.write",
+			want:  "events.manage events.operate events.report",
+		},
+		"among other scopes": {
+			scope: "tenant.read events.write events.read",
+			want:  "tenant.read events.manage events.operate events.report events.read",
+		},
+		"beside a scope it expands to": {
+			scope: "events.write events.manage",
+			want:  "events.manage events.operate events.report",
+		},
+		"a scope without the legacy value": {
+			scope: "tenant.read  events.read",
+			want:  "tenant.read  events.read",
+		},
+		"a scope the legacy value is a prefix of": {
+			scope: "events.writeX",
+			want:  "events.writeX",
+		},
+		"a scope the legacy value is a suffix of": {
+			scope: "xevents.write",
+			want:  "xevents.write",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := verifiedScope(t, provider, stub, tt.scope); got != tt.want {
+				t.Errorf("Scope = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func newIntrospectingProvider(t *testing.T, stub *stubIDP) *idp.Provider {
 	t.Helper()
 
