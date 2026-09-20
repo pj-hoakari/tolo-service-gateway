@@ -35,6 +35,7 @@ const (
 	ReasonInternalOnly                 = "internal_only"
 	ReasonTokenUseMismatch             = "token_use_mismatch" //nolint:gosec // an audit vocabulary word, not a credential
 	ReasonMissingScope                 = "missing_scope"
+	ReasonIntrospectionUnavailable     = "introspection_unavailable"
 )
 
 var ErrVerifierUnavailable = errors.New("authn: the external token verifier is unavailable")
@@ -140,6 +141,10 @@ func authorize(token ExternalToken, entry registry.Entry) *Rejection {
 		if !slices.Contains(granted, required) {
 			return &Rejection{Code: connectrpc.CodePermissionDenied, Reason: ReasonMissingScope}
 		}
+	}
+
+	if entry.Introspection {
+		return unauthenticated(ReasonIntrospectionUnavailable)
 	}
 
 	return nil

@@ -318,6 +318,64 @@ func TestAuthenticateNamesTheReason(t *testing.T) {
 	}
 }
 
+func TestAuthenticateRejectsProceduresThatNeedIntrospection(t *testing.T) {
+	t.Parallel()
+
+	entry := registry.Entry{
+		Procedure:         "/tolo.tenant.v1.TenantService/ArchiveTenant",
+		Destination:       "tolo-tenant-management",
+		Anonymous:         false,
+		ExternalTokenUses: []string{"tenant_access"},
+		Service:           false,
+		RequiredScopes:    []string{"tenant.manage"},
+		Introspection:     true,
+	}
+
+	tests := map[string]struct {
+		scope      string
+		wantCode   connectrpc.Code
+		wantReason string
+	}{
+		"a token with every required scope": {
+			scope:      "tenant.manage",
+			wantCode:   connectrpc.CodeUnauthenticated,
+			wantReason: authn.ReasonIntrospectionUnavailable,
+		},
+		"a token without the required scope": {
+			scope:      "tenant.read",
+			wantCode:   connectrpc.CodePermissionDenied,
+			wantReason: authn.ReasonMissingScope,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			authenticator := authn.NewAuthenticator(fakeVerifier{
+				tokens: map[string]authn.ExternalToken{
+					acceptedToken: externalToken("tenant_access", test.scope),
+				},
+				err: nil,
+			})
+
+			_, rejection := authenticator.Authenticate(t.Context(), headerWith(bearer(acceptedToken)), entry)
+
+			if rejection == nil {
+				t.Fatal("Authenticate() accepted the request, want it rejected")
+			}
+
+			if rejection.Code != test.wantCode {
+				t.Errorf("code = %v, want %v", rejection.Code, test.wantCode)
+			}
+
+			if rejection.Reason != test.wantReason {
+				t.Errorf("reason = %q, want %q", rejection.Reason, test.wantReason)
+			}
+		})
+	}
+}
+
 func TestAuthenticateKeepsTheVerifiedTokenOnAnAuthorizationFailure(t *testing.T) {
 	t.Parallel()
 
