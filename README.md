@@ -25,7 +25,7 @@ task up:build
 ```
 
 サーバーは `http://localhost:8080` で待ち受ける（停止は `task down`）  
-RPC を呼び出すには Service Gateway 発行の内部 JWT が必要なので、`go tool jwtgen` で生成した JWKS を配信する URL を `INTERNAL_JWKS_URL` で `server` に渡す（後述）
+現段階の `server` が公開するのは `/healthz` だけで、業務 RPC はまだ受け付けない
 
 ### トレースの確認（Jaeger）
 
