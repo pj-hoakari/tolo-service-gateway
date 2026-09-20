@@ -80,7 +80,8 @@ compose を使わずに起動する場合、開発用の署名鍵は `openssl ec
 ```json
 {
   "destinations": {
-    "tolo-testbackend": { "url": "http://testbackend:8080" }
+    "tolo-testbackend": { "url": "http://testbackend:8080" },
+    "tolo-tenant-management": { "url": "http://tenant-management:8080" }
   }
 }
 ```
@@ -90,6 +91,11 @@ compose を使わずに起動する場合、開発用の署名鍵は `openssl ec
 `url` の scheme は `http` か `https`、host は必須で、userinfo・query・fragment は持てず、path は空か `/` だけ許す  
 RPC 登録表が参照する宛先が設定に無い場合も、設定にあるが登録表から参照されない宛先がある場合もエラーになる  
 compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destinations.json` へ読み込み専用でマウントしている
+
+登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService` が入っており、後者2つの宛先は `tolo-tenant-management` になる  
+ただし compose にはまだ Tenant Management のコンテナが無いため、宛先は宣言だけで接続はしない  
+また現在は `go.mod` の `replace` でローカルの tolo-tenant-management を参照している一時的な状態で、replace 先がビルドコンテキストの外にあるため、この間は Docker イメージのビルドと CI が通らない  
+公開版のモジュールへ差し替えた時点で replace を消す
 
 #### 配備についての注意
 
