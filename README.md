@@ -51,7 +51,8 @@ Connect・gRPC・gRPC-Web のいずれかとして解釈できる POST には、
 後段へ到達できない場合は `unavailable` を返し、宛先のホスト名などの詳細は応答に出さずサーバー側のログにだけ記録する
 
 RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`、項目は `audit` グループにまとめる）  
-項目は `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id` と、値があるときだけ出る `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti`・`origin_sub`・`failure_reason` になる（外部トークン検証が未実装のため、現段階で入るのは `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id`・`failure_reason` だけ）  
+項目は `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id` と、値があるときだけ出る `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti`・`origin_sub`・`failure_reason` になる  
+外部トークンを受理した場合は `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti` が入る（外部トークンの検証器はまだ配線しておらず、資格情報つきの要求は `unauthenticated` になるため、現段階で入るのは `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id`・`failure_reason` だけ）  
 監査ログは `LOG_LEVEL` に依らず必ず出力する  
 登録表に無い RPC・RPC として解釈できない要求（GET を含む）は監査の対象にせず、ログも出さない
 

@@ -13,6 +13,7 @@ var errInternal = errors.New("internal error")
 
 var (
 	errUnauthenticated     = errors.New("unauthenticated")
+	errPermissionDenied    = errors.New("permission denied")
 	errUnimplemented       = errors.New("unimplemented")
 	errUpstreamUnavailable = errors.New("upstream unavailable")
 	errCanceled            = errors.New("canceled")
@@ -21,6 +22,10 @@ var (
 
 func Unauthenticated() *connectrpc.Error {
 	return connectrpc.NewError(connectrpc.CodeUnauthenticated, errUnauthenticated)
+}
+
+func PermissionDenied() *connectrpc.Error {
+	return connectrpc.NewError(connectrpc.CodePermissionDenied, errPermissionDenied)
 }
 
 func Unimplemented() *connectrpc.Error {
