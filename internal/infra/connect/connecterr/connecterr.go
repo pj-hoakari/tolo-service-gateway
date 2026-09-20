@@ -11,6 +11,34 @@ import (
 // errInternal is the only detail a client learns about an internal failure.
 var errInternal = errors.New("internal error")
 
+var (
+	errUnauthenticated     = errors.New("unauthenticated")
+	errUnimplemented       = errors.New("unimplemented")
+	errUpstreamUnavailable = errors.New("upstream unavailable")
+	errCanceled            = errors.New("canceled")
+	errDeadlineExceeded    = errors.New("deadline exceeded")
+)
+
+func Unauthenticated() *connectrpc.Error {
+	return connectrpc.NewError(connectrpc.CodeUnauthenticated, errUnauthenticated)
+}
+
+func Unimplemented() *connectrpc.Error {
+	return connectrpc.NewError(connectrpc.CodeUnimplemented, errUnimplemented)
+}
+
+func Unavailable() *connectrpc.Error {
+	return connectrpc.NewError(connectrpc.CodeUnavailable, errUpstreamUnavailable)
+}
+
+func Canceled() *connectrpc.Error {
+	return connectrpc.NewError(connectrpc.CodeCanceled, errCanceled)
+}
+
+func DeadlineExceeded() *connectrpc.Error {
+	return connectrpc.NewError(connectrpc.CodeDeadlineExceeded, errDeadlineExceeded)
+}
+
 // InternalError reports a failure the client can do nothing about. The cause is
 // written to the server log and replaced by a fixed message, so that no
 // internal detail leaves the service. The log handler names the trace of the

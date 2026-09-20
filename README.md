@@ -50,6 +50,20 @@ Connect・gRPC・gRPC-Web のいずれかとして解釈できる POST には、
 受信した deadline と cancel は後段へ伝え、残存時間は増やさない（deadline が無いときだけ 30 秒の既定値を使う）  
 後段へ到達できない場合は `unavailable` を返し、宛先のホスト名などの詳細は応答に出さずサーバー側のログにだけ記録する
 
+RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`、項目は `audit` グループにまとめる）  
+項目は `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id` と、値があるときだけ出る `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti`・`origin_sub`・`failure_reason` になる（外部トークン検証が未実装のため、現段階で入るのは `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id`・`failure_reason` だけ）  
+監査ログは `LOG_LEVEL` に依らず必ず出力する  
+登録表に無い RPC・RPC として解釈できない要求（GET を含む）は監査の対象にせず、ログも出さない
+
+ログと監査の相関には W3C Trace Context の trace-id を使う  
+Gateway は外部に面しているため、受信した `traceparent` を引き継がず、要求ごとに新しいトレースを始める  
+trace-id は OTLP のエクスポート設定が無くても採番され、後段へは `traceparent` として伝わる（後段の span は Gateway の span の子になる）  
+相関 ID を応答ヘッダで返すことはしない
+
+`source_ip` は `TOLO_GATEWAY_TRUSTED_PROXY_HOPS` が 0（既定）なら接続元アドレスのホスト部になる  
+n が 1 以上なら、すべての `X-Forwarded-For` の値を出現順に並べた列の右から n 番目を採り、要素が足りない場合や IP アドレスでない場合は接続元アドレスへ戻す  
+`Forwarded`・`X-Real-Ip` などほかの転送ヘッダは読まない
+
 `testbackend`（`http://localhost:8081`）は `server` の JWKS を取得して内部 JWT を検証するテスト用の後段サービスで、`jwtgen` で作った JWKS を配る手順の代わりになる  
 `greet.v1.GreetService/Greet` は内部 JWT を要求するが、`greet.v1.GreetService/Ping` は匿名で呼べる  
 `Ping` は Gateway 経由で通り、`Greet` は内部 JWT の発行経路がまだ無いため Gateway で `unauthenticated` になる  
@@ -80,6 +94,7 @@ curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8080/t
 | `INTERNAL_JWT_PUBLISHED_KEY_FILES` | 任意 | なし | 署名鍵に加えて JWKS へ載せる公開鍵。`kid=パス` をカンマ区切りで並べる（例 `next-key=/etc/tolo/keys/next.pub.pem,old-key=/etc/tolo/keys/old.pub.pem`）。kid は署名鍵のものを含めて重複させられない |
 | `IDP_ISSUER` | 任意 | なし | 外部 IdP の issuer。`INTERNAL_JWT_ISSUER` と同じ値は設定エラーになる。外部トークン経路を実装する段階で必須にする |
 | `TOLO_GATEWAY_DESTINATIONS_FILE` | 必須 | なし | 宛先設定ファイル（JSON）のパス。起動時に読み込み、読めない・形式が不正・RPC 登録表と噛み合わない場合は起動に失敗する |
+| `TOLO_GATEWAY_TRUSTED_PROXY_HOPS` | 任意 | `0` | 信頼する前段プロキシの段数（0〜16 の整数）。監査ログの `source_ip` を `X-Forwarded-For` の右から何番目で採るかを決める。範囲外の値と整数でない値は設定エラーになる |
 
 必須の変数が欠けている場合は設定エラーとして起動に失敗する  
 compose を使わずに起動する場合、開発用の署名鍵は `openssl ecparam -name prime256v1 -genkey -noout -out <path>` で生成できる（鍵ファイルはリポジトリに置かない）

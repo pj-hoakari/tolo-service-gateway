@@ -27,6 +27,7 @@ func Handlers(
 	destinations registry.Destinations,
 	mounts []Mount,
 	httpClient connectrpc.HTTPClient,
+	clientOptions []connectrpc.ClientOption,
 	handlerOptions []connectrpc.HandlerOption,
 ) (map[string]http.Handler, error) {
 	bound := make(map[string]string, len(bindings))
@@ -53,7 +54,7 @@ func Handlers(
 			return nil, err
 		}
 
-		path, handler := mounted[service].New(httpClient, baseURL, nil, options)
+		path, handler := mounted[service].New(httpClient, baseURL, clientOptions, options)
 
 		if _, taken := handlers[path]; taken {
 			return nil, fmt.Errorf("%w: %s is mounted on %q, which is already taken", ErrDuplicateMountPath, service, path)

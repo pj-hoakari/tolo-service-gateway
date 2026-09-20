@@ -3,10 +3,13 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
 const defaultListenAddr = ":8080"
+
+const maxTrustedProxyHops = 16
 
 const (
 	envListenAddr        = "SERVER_ADDR"
@@ -16,6 +19,7 @@ const (
 	envPublishedKeyFiles = "INTERNAL_JWT_PUBLISHED_KEY_FILES"
 	envIDPIssuer         = "IDP_ISSUER"
 	envDestinationsFile  = "TOLO_GATEWAY_DESTINATIONS_FILE"
+	envTrustedProxyHops  = "TOLO_GATEWAY_TRUSTED_PROXY_HOPS"
 )
 
 const publishedKeySeparator = "="
@@ -32,6 +36,7 @@ type Config struct {
 	PublishedKeys    []KeyFile
 	IDPIssuer        string
 	DestinationsFile string
+	TrustedProxyHops int
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -69,6 +74,11 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 
+	trustedProxyHops, err := parseTrustedProxyHops(getenv(envTrustedProxyHops))
+	if err != nil {
+		errs = append(errs, err)
+	}
+
 	if idpIssuer != "" && idpIssuer == issuerID {
 		errs = append(errs, fmt.Errorf("%s must not be the same value as %s", envIDPIssuer, envIssuerID))
 	}
@@ -86,7 +96,25 @@ func Load(getenv func(string) string) (Config, error) {
 		PublishedKeys:    publishedKeys,
 		IDPIssuer:        idpIssuer,
 		DestinationsFile: destinationsFile,
+		TrustedProxyHops: trustedProxyHops,
 	}, nil
+}
+
+func parseTrustedProxyHops(raw string) (int, error) {
+	if raw == "" {
+		return 0, nil
+	}
+
+	hops, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer between 0 and %d, got %q", envTrustedProxyHops, maxTrustedProxyHops, raw)
+	}
+
+	if hops < 0 || hops > maxTrustedProxyHops {
+		return 0, fmt.Errorf("%s must be between 0 and %d, got %d", envTrustedProxyHops, maxTrustedProxyHops, hops)
+	}
+
+	return hops, nil
 }
 
 func parsePublishedKeys(raw, signingKeyID string) ([]KeyFile, error) {

@@ -13,6 +13,7 @@ import (
 
 	greetv1 "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1"
 	"github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 )
 
@@ -305,6 +306,89 @@ func TestUnaryAppliesADeadlineOnlyWhenTheCallerHasNone(t *testing.T) {
 				t.Errorf("the upstream deadline leaves %v, want more than %v", got, test.wantAtLeast)
 			}
 		})
+	}
+}
+
+func failureReasonOf(t *testing.T, ctx context.Context, client greetv1connect.GreetServiceClient) string {
+	t.Helper()
+
+	record := &audit.Record{}
+
+	_, err := callPing(audit.NewContext(ctx, record), client, connectrpc.NewRequest(&greetv1.PingRequest{}))
+	if err == nil {
+		t.Fatal("Unary() error = nil, want an error")
+	}
+
+	return record.FailureReason
+}
+
+func TestUnaryNamesTheFailureReasonInTheAuditRecord(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		upstream *connectrpc.Error
+		want     string
+	}{
+		"an internal failure": {
+			upstream: connectrpc.NewError(connectrpc.CodeInternal, errors.New("the store rejected the query")), //nolint:forbidigo // the upstream code under test, not an internal error built here
+			want:     "upstream_internal",
+		},
+		"an unknown failure": {
+			upstream: connectrpc.NewError(connectrpc.CodeUnknown, errors.New("panic in the store")),
+			want:     "upstream_internal",
+		},
+		"an invalid argument": {
+			upstream: connectrpc.NewError(connectrpc.CodeInvalidArgument, errors.New("name is required")),
+			want:     "upstream_error",
+		},
+		"a cancelled upstream": {
+			upstream: connectrpc.NewError(connectrpc.CodeCanceled, errors.New("the caller went away")),
+			want:     "canceled",
+		},
+		"an upstream past its deadline": {
+			upstream: connectrpc.NewError(connectrpc.CodeDeadlineExceeded, errors.New("too slow")),
+			want:     "deadline_exceeded",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			client, _ := startUpstream(t, func(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+				return nil, test.upstream
+			})
+
+			if got := failureReasonOf(t, t.Context(), client); got != test.want {
+				t.Errorf("failure reason = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestUnaryNamesAnUnreachableUpstreamInTheAuditRecord(t *testing.T) {
+	t.Parallel()
+
+	client, server := startUpstream(t, func(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+		return pong(), nil
+	})
+	server.Close()
+
+	if got, want := failureReasonOf(t, t.Context(), client), "upstream_unreachable"; got != want {
+		t.Errorf("failure reason = %q, want %q", got, want)
+	}
+}
+
+func TestUnaryLeavesTheAuditRecordAloneWhenThereIsNone(t *testing.T) {
+	t.Parallel()
+
+	client, server := startUpstream(t, func(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+		return pong(), nil
+	})
+	server.Close()
+
+	if _, err := callPing(t.Context(), client, connectrpc.NewRequest(&greetv1.PingRequest{})); err == nil {
+		t.Fatal("Unary() error = nil, want an error")
 	}
 }
 

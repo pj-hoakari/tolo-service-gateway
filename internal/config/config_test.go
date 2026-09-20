@@ -499,3 +499,59 @@ func TestLoad(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadTrustedProxyHops(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		raw     string
+		want    int
+		wantErr bool
+	}{
+		"unset":                {raw: "", want: 0, wantErr: false},
+		"zero":                 {raw: "0", want: 0, wantErr: false},
+		"one":                  {raw: "1", want: 1, wantErr: false},
+		"the highest hop":      {raw: "16", want: 16, wantErr: false},
+		"above the range":      {raw: "17", want: 0, wantErr: true},
+		"below the range":      {raw: "-1", want: 0, wantErr: true},
+		"not a number":         {raw: "two", want: 0, wantErr: true},
+		"not an integer":       {raw: "1.5", want: 0, wantErr: true},
+		"surrounded by spaces": {raw: " 1 ", want: 0, wantErr: true},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(func(key string) string {
+				return map[string]string{
+					"INTERNAL_JWT_ISSUER":             "service-gateway",
+					"INTERNAL_JWT_SIGNING_KEY_FILE":   "/etc/tolo/signing-key.pem",
+					"INTERNAL_JWT_SIGNING_KEY_ID":     "dev-key-1",
+					"TOLO_GATEWAY_DESTINATIONS_FILE":  "/etc/tolo/gateway/destinations.json",
+					"TOLO_GATEWAY_TRUSTED_PROXY_HOPS": tt.raw,
+				}[key]
+			})
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Load() error = nil, want error")
+				}
+
+				if !strings.Contains(err.Error(), "TOLO_GATEWAY_TRUSTED_PROXY_HOPS") {
+					t.Errorf("Load() error = %q, want it to mention %q", err.Error(), "TOLO_GATEWAY_TRUSTED_PROXY_HOPS")
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Load() error = %v, want nil", err)
+			}
+
+			if got := cfg.TrustedProxyHops; got != tt.want {
+				t.Errorf("TrustedProxyHops = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

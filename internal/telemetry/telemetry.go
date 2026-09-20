@@ -14,7 +14,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
-	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // DefaultServiceName is reported as service.name when OTEL_SERVICE_NAME is unset.
@@ -33,11 +32,12 @@ type ShutdownFunc func(context.Context) error
 // baggage propagators.
 //
 // Spans are exported over OTLP/HTTP only when OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-// or OTEL_EXPORTER_OTLP_ENDPOINT is set. Without an endpoint the service keeps
-// running with a no-op tracer provider instead of failing, so tracing stays an
-// opt-in concern of the deployment environment. The remaining OTLP environment
-// variables (headers, protocol-specific paths, TLS, timeouts) are honoured by
-// the exporter itself.
+// or OTEL_EXPORTER_OTLP_ENDPOINT is set. Without an endpoint the provider is
+// built without an exporter instead of the pipeline failing, so tracing stays
+// an opt-in concern of the deployment environment while a request still gets
+// the trace and span IDs its records are correlated on. The remaining OTLP
+// environment variables (headers, protocol-specific paths, TLS, timeouts) are
+// honoured by the exporter itself.
 //
 // Whatever the pipeline reports about itself goes through the default slog
 // logger, so that an export failure is a record like any other rather than a
@@ -53,26 +53,23 @@ func Setup(ctx context.Context) (ShutdownFunc, error) {
 		propagation.Baggage{},
 	))
 
-	if !endpointConfigured() {
-		otel.SetTracerProvider(noop.NewTracerProvider())
-
-		return func(context.Context) error { return nil }, nil
-	}
-
 	res, err := newResource()
 	if err != nil {
 		return nil, err
 	}
 
-	exporter, err := otlptracehttp.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("create OTLP trace exporter: %w", err)
+	options := []sdktrace.TracerProviderOption{sdktrace.WithResource(res)}
+
+	if endpointConfigured() {
+		exporter, err := otlptracehttp.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("create OTLP trace exporter: %w", err)
+		}
+
+		options = append(options, sdktrace.WithBatcher(exporter))
 	}
 
-	provider := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	)
+	provider := sdktrace.NewTracerProvider(options...)
 	otel.SetTracerProvider(provider)
 
 	return provider.Shutdown, nil

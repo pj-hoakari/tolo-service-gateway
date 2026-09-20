@@ -11,9 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	connectrpc "connectrpc.com/connect"
+	"connectrpc.com/otelconnect"
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
+	"go.opentelemetry.io/otel"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
+	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
 	infraconnect "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
@@ -67,6 +71,16 @@ func run() error {
 	slog.Info("gateway configuration loaded", configLogAttrs(cfg)...)
 	slog.Warn("workload authentication is not implemented yet; do not deploy this build to a production-like environment")
 
+	shutdownTracing, err := telemetry.Setup(ctx)
+	if err != nil {
+		return fmt.Errorf("setup tracing: %w", err)
+	}
+	defer shutdownTracingWithTimeout(shutdownTracing)
+
+	if telemetry.Enabled() {
+		slog.Info("tracing enabled", "service", telemetry.ServiceName())
+	}
+
 	rpcRegistry, destinations, err := buildRegistry(cfg)
 	if err != nil {
 		return err
@@ -87,16 +101,6 @@ func run() error {
 		return fmt.Errorf("build internal JWT issuer: %w", err)
 	}
 
-	shutdownTracing, err := telemetry.Setup(ctx)
-	if err != nil {
-		return fmt.Errorf("setup tracing: %w", err)
-	}
-	defer shutdownTracingWithTimeout(shutdownTracing)
-
-	if telemetry.Enabled() {
-		slog.Info("tracing enabled", "service", telemetry.ServiceName())
-	}
-
 	readiness := httpapi.NewReadiness()
 	readiness.Register(signingKeyReadinessCheck, signingKeyCheck(signingKeys))
 
@@ -104,7 +108,13 @@ func run() error {
 		httpapi.HealthRoutes(readiness),
 		httpapi.PublicRoutes(httpapi.NewJWKSHandler(internalIssuer)),
 		httpapi.WorkloadRoutes(),
-		infraconnect.Routes(rpcRegistry, rpcHandlers),
+		infraconnect.Routes(infraconnect.Config{
+			Registry:         rpcRegistry,
+			Handlers:         rpcHandlers,
+			Audit:            newAuditEmitter(),
+			TracerProvider:   otel.GetTracerProvider(),
+			TrustedProxyHops: cfg.TrustedProxyHops,
+		}),
 	)
 
 	httpServer := &http.Server{
@@ -168,18 +178,35 @@ func buildRPCHandlers(destinations registry.Destinations) (map[string]http.Handl
 		return nil, errUnexpectedTransport
 	}
 
+	tracing, err := otelconnect.NewInterceptor(
+		otelconnect.WithTracerProvider(otel.GetTracerProvider()),
+		otelconnect.WithPropagator(otel.GetTextMapPropagator()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("build the tracing interceptor: %w", err)
+	}
+
 	handlers, err := forward.Handlers(
 		catalog.Bindings(),
 		destinations,
 		forwardgen.Mounts(),
 		forward.NewHTTPClient(transport.Clone()),
-		nil,
+		[]connectrpc.ClientOption{connectrpc.WithInterceptors(tracing)},
+		[]connectrpc.HandlerOption{connectrpc.WithInterceptors(infraconnect.AuditInterceptor())},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build the RPC handlers: %w", err)
 	}
 
 	return handlers, nil
+}
+
+func newAuditEmitter() *audit.Emitter {
+	return audit.NewEmitter(logging.NewLogger(os.Stdout, logging.Options{
+		Level:     slog.LevelInfo,
+		AddSource: false,
+		ProjectID: os.Getenv("GOOGLE_CLOUD_PROJECT"),
+	}))
 }
 
 func internalJWTKeyFiles(cfg config.Config) token.FileKeys {
@@ -209,6 +236,7 @@ func configLogAttrs(cfg config.Config) []any {
 		"signing_kid", cfg.SigningKey.ID,
 		"published_kids", publishedKeyIDs,
 		"destinations_file", cfg.DestinationsFile,
+		"trusted_proxy_hops", cfg.TrustedProxyHops,
 	}
 
 	if cfg.IDPIssuer != "" {
