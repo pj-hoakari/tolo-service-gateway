@@ -12,15 +12,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	connectrpc "connectrpc.com/connect"
 	"connectrpc.com/otelconnect"
+	"github.com/golang-jwt/jwt/v5"
+	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
 	"github.com/pj-hoakari/internal-jwt-handling/jwks"
 	"github.com/pj-hoakari/internal-jwt-handling/verifier"
+	tenantv1 "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1"
+	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1/tenantv1connect"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -49,6 +54,8 @@ const (
 
 	introspectionClientID   = "gateway-introspection"
 	introspectionCredential = "introspection-client-credential"
+
+	legacyEventsWriteScope = "events.write"
 )
 
 type upstreamCall struct {
@@ -367,9 +374,10 @@ func (a authorizationRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 type verifyingFixture struct {
-	client  greetv1connect.GreetServiceClient
-	headers chan string
-	audit   *bytes.Buffer
+	client     greetv1connect.GreetServiceClient
+	gatewayURL string
+	headers    chan string
+	audit      *bytes.Buffer
 }
 
 func newGatewayIssuer(t *testing.T) *issuer.Issuer {
@@ -473,9 +481,10 @@ func newVerifyingGatewayWith(t *testing.T, authenticator *authn.Authenticator, b
 	t.Cleanup(gateway.Close)
 
 	return verifyingFixture{
-		client:  greetv1connect.NewGreetServiceClient(gateway.Client(), gateway.URL),
-		headers: headers,
-		audit:   logs,
+		client:     greetv1connect.NewGreetServiceClient(gateway.Client(), gateway.URL),
+		gatewayURL: gateway.URL,
+		headers:    headers,
+		audit:      logs,
 	}
 }
 
@@ -580,12 +589,19 @@ func startFakeIDP(t *testing.T) string {
 func newIDPGateway(t *testing.T) (verifyingFixture, string) {
 	t.Helper()
 
+	return newIDPGatewayWith(t, false)
+}
+
+func newIDPGatewayWith(t *testing.T, legacyEventsWriteScope bool) (verifyingFixture, string) {
+	t.Helper()
+
 	issuer := startFakeIDP(t)
 
 	provider, err := idp.New(idp.Config{
-		Issuer:     issuer,
-		Audience:   externalAudience,
-		Algorithms: []string{"RS256"},
+		Issuer:                 issuer,
+		Audience:               externalAudience,
+		Algorithms:             []string{"RS256"},
+		LegacyEventsWriteScope: legacyEventsWriteScope,
 	})
 	if err != nil {
 		t.Fatalf("idp.New() error = %v, want nil", err)
@@ -853,6 +869,77 @@ func TestGatewayStopsTokensTheIDPIssuedOutsideTheSpecifiedShape(t *testing.T) {
 				t.Errorf("upstream calls = %d, want 0", got)
 			}
 		})
+	}
+}
+
+func createEventWith(t *testing.T, fixture verifyingFixture, token string) error {
+	t.Helper()
+
+	client := tenantv1connect.NewTenantServiceClient(http.DefaultClient, fixture.gatewayURL)
+
+	req := connectrpc.NewRequest(&tenantv1.CreateEventRequest{})
+	req.Header().Set("Authorization", "Bearer "+token)
+
+	_, err := client.CreateEvent(t.Context(), req)
+
+	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
+}
+
+func internalScopeOf(t *testing.T, authorization string) string {
+	t.Helper()
+
+	claims := internaljwt.Claims{}
+
+	if _, _, err := jwt.NewParser().ParseUnverified(strings.TrimPrefix(authorization, "Bearer "), &claims); err != nil {
+		t.Fatalf("ParseUnverified() error = %v, want nil", err)
+	}
+
+	return claims.Scope
+}
+
+func TestGatewayStopsTheLegacyEventsWriteScopeUnlessTheRewriteIsEnabled(t *testing.T) {
+	t.Parallel()
+
+	fixture, issuer := newIDPGatewayWith(t, false)
+
+	token := issueExternalToken(t, issuer, externalTokenRequest(legacyEventsWriteScope, externalTenantID))
+
+	err := createEventWith(t, fixture, token)
+
+	if got, want := gatewayError(t, err).Code(), connectrpc.CodePermissionDenied; got != want {
+		t.Errorf("code = %v, want %v", got, want)
+	}
+
+	if got := len(fixture.headers); got != 0 {
+		t.Errorf("upstream calls = %d, want 0", got)
+	}
+
+	assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{
+		"method":         tenantv1connect.TenantServiceCreateEventProcedure,
+		"result":         "permission_denied",
+		"failure_reason": "missing_scope",
+	})
+}
+
+func TestGatewayRewritesTheLegacyEventsWriteScopeForTheUpstream(t *testing.T) {
+	t.Parallel()
+
+	fixture, issuer := newIDPGatewayWith(t, true)
+
+	token := issueExternalToken(t, issuer, externalTokenRequest(legacyEventsWriteScope, externalTenantID))
+
+	if got := gatewayError(t, createEventWith(t, fixture, token)).Code(); got == connectrpc.CodePermissionDenied {
+		t.Errorf("code = %v, want the call to pass authentication and authorization", got)
+	}
+
+	scope := internalScopeOf(t, <-fixture.headers)
+
+	if !slices.Contains(strings.Fields(scope), "events.manage") {
+		t.Errorf("internal JWT scope = %q, want it to carry events.manage", scope)
+	}
+
+	if slices.Contains(strings.Fields(scope), legacyEventsWriteScope) {
+		t.Errorf("internal JWT scope = %q, want it not to carry %q", scope, legacyEventsWriteScope)
 	}
 }
 
