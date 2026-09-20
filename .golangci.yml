@@ -8,7 +8,7 @@ linters:
         - contextcheck
         - fatcontext
         - containedctx
-        - exhaustruct
+        - exhaustruct_v5
         - exhaustive
         - forbidigo
         - gosec
@@ -35,8 +35,8 @@ linters:
                 # its request context.
                 - pattern: '^log\.[A-Z]\w*$'
                   msg: "use log/slog (internal/logging) instead of the standard log package"
-        exhaustruct:
-            exclude:
+        exhaustruct_v5:
+            ignore-patterns:
                 - 'crypto/tls\.Config'
                 - 'log/slog\.HandlerOptions'
                 - 'net/http\.Server'
@@ -51,7 +51,7 @@ linters:
             - path: _test\.go
               linters:
                   - errcheck
-                  - exhaustruct
+                  - exhaustruct_v5
                   - forbidigo
                   - gosec
                   - staticcheck
