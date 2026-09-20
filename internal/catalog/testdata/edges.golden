@@ -1,0 +1,2 @@
+tolo-graph-authoring	/tolo.tenant.v1.TenantService/GetEvent	user_origin=event_access	machine_chain=false	new_machine_origin=false
+tolo-observation	/tolo.tenant.v1.TenantService/GetObservationSettings	user_origin=event_access	machine_chain=true	new_machine_origin=false
