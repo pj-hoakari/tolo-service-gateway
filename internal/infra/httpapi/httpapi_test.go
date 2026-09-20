@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/pj-hoakari/tolo-service-gateway/internal/httpapi"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
 )
 
 func TestNewHandlerMountsEveryFace(t *testing.T) {

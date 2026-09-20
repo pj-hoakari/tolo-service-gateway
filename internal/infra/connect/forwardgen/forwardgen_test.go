@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
-	"github.com/pj-hoakari/tolo-service-gateway/internal/forwardgen"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forwardgen"
 )
 
 func TestMountsCoverExactlyTheBoundServices(t *testing.T) {
