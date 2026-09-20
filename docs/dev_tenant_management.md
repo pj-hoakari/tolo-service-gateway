@@ -135,10 +135,10 @@ enum は `EVENT_TYPE_SHORT_TERM`・`ROLE_STAFF` のような完全な名前の�
 | scope 不足（`tenant.read` だけで `CreateEvent`） | `403 permission denied` | `missing_scope` | Gateway |
 | 内部オンリーの RPC を外部トークンで | `403 permission denied` | `internal_only` | Gateway |
 | 失効照会の対象 RPC を失効済みトークンで | `401 unauthenticated` | `token_revoked` | Gateway |
-| テナントの非メンバーが `AddTenantMember` | `403 current permission denied` | `upstream_error` | Tenant Management |
-| トークンの `tenant_id` とリクエストの `tenantId` が違う | `403 tenant ID does not match context` | `upstream_error` | Tenant Management |
-| 存在しない `tenant_id` で `ListEvents` | `404 tenant not found` | `upstream_error` | Tenant Management |
-| archive 済みテナントへの書き込み | `400 tenant is archived` | `upstream_error` | Tenant Management |
+| テナントの非メンバーが `AddTenantMember` | `403 current permission denied` | `upstream_refused` | Tenant Management |
+| トークンの `tenant_id` とリクエストの `tenantId` が違う | `403 tenant ID does not match context` | `upstream_refused` | Tenant Management |
+| 存在しない `tenant_id` で `ListEvents` | `404 tenant not found` | `upstream_refused` | Tenant Management |
+| archive 済みテナントへの書き込み | `400 tenant is archived` | `upstream_refused` | Tenant Management |
 
 失効照会の対象は `ChangeTenantContract`・`ArchiveTenant` と `RelationAdminService` の書き込み 4 つになる  
 対象でない RPC は、失効済みのトークンでも署名と期限が有効な間は通る（`ListEvents` など）  
@@ -167,8 +167,8 @@ Gateway は登録表に無いパスを転送しないので、`http://localhost:
 後段が内部 JWT を拒否すると、Gateway は `unauthenticated` を透過せず `500 internal`（監査 `failure_reason=upstream_rejected_internal_token`）を返す  
 クライアントから見ると後段の設定ずれと自分のトークンの問題が区別できないため、原因は監査ログと `docker compose logs tenant-management` の `internal JWT rejected` で切り分ける
 
-後段が返した業務上の拒否（`403`・`404`）も監査では一律 `failure_reason=upstream_error` になる  
-「宛先が壊れた」のか「宛先が断った」のかは `result` と `http_status` で見る
+後段が返した業務上の拒否（`400`・`403`・`404`）は、監査では `failure_reason=upstream_refused` になる  
+後段の障害（`upstream_error`・`upstream_internal`・`upstream_unreachable`）とは別の値なので、「宛先が断った」のか「宛先が壊れた」のかは `failure_reason` で区別できる
 
 実物の IdP との組み合わせ（`-f compose.yml -f compose.idp.yml -f compose.tm.yml`）は構成としては成立し、サービス名もポートも衝突しない  
 ただし IdP は所属を `idp-relation-stub` の静的なデータから引くため、Tenant Management が採番した `tenant_id` を持つトークンは発行できない（IdP と Tenant Management の所属参照 API が噛み合っていない既知の問題）  

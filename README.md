@@ -57,6 +57,31 @@ RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`
 監査ログは `LOG_LEVEL` に依らず必ず出力する  
 登録表に無い RPC・RPC として解釈できない要求（GET を含む）は監査の対象にせず、ログも出さない
 
+`failure_reason` は、要求がどこで止まったかを表す
+
+| 段階 | `failure_reason` | 意味 |
+| --- | --- | --- |
+| Gateway の認証 | `workload_authorization` | ワークロード認証用のヘッダが付いていた（未実装のため拒否する） |
+| 〃 | `dpop_unsupported`／`sender_constrained_unsupported` | `DPoP` ヘッダ、または `cnf` を持つトークン（未実装のため拒否する） |
+| 〃 | `malformed_authorization` | `Authorization` が `Bearer <token>` の形でない、または複数ある |
+| 〃 | `external_authorization` | 外部トークン検証が無効（`IDP_ISSUER` が未設定） |
+| 〃 | `verifier_unavailable` | IdP の Discovery が未解決、または検証鍵を取得できない |
+| 〃 | `invalid_token` | 署名または claim が仕様を満たさない |
+| 〃 | `anonymous_rejected` | 資格情報が無く、匿名を受理しない RPC だった |
+| Gateway の認可 | `token_use_mismatch` | RPC が受理しない token_use、または外部トークンを受理しない RPC |
+| 〃 | `internal_only` | サービス間専用の RPC に外部トークンで来た |
+| 〃 | `missing_scope` | RPC が要求する scope が足りない |
+| 〃 | `introspection_unavailable`／`token_revoked` | 失効照会ができない、または失効済み（対象の 6 RPC のみ） |
+| 入口変換 | `issue_failed` | 内部 JWT を発行できなかった |
+| 後段 | `upstream_refused` | 後段が要求を処理したうえで断った（`invalid_argument`・`not_found`・`already_exists`・`permission_denied`・`failed_precondition`・`out_of_range`・`aborted`・`unauthenticated`）。code とメッセージはそのまま返す |
+| 〃 | `upstream_error` | 後段が障害を返した（`unavailable`・`resource_exhausted`・`unimplemented`・`data_loss`）。code とメッセージはそのまま返す |
+| 〃 | `upstream_internal` | 後段が `internal`／`unknown` を返した（応答は固定メッセージの `internal`） |
+| 〃 | `upstream_rejected_internal_token` | Gateway が発行した内部 JWT を後段が拒否した（クライアントの問題ではないため、応答は `internal`） |
+| 〃 | `upstream_unreachable` | 後段へ到達できなかった（応答は `unavailable`） |
+| 〃 | `canceled`／`deadline_exceeded` | クライアントの取り消し、または期限切れ |
+
+後段の正常な拒否（`upstream_refused`）と後段の障害（`upstream_error`・`upstream_internal`・`upstream_unreachable`）は別の値なので、監査を警報に使うときは後者だけを対象にできる
+
 ログと監査の相関には W3C Trace Context の trace-id を使う  
 Gateway は外部に面しているため、受信した `traceparent` を引き継がず、要求ごとに新しいトレースを始める  
 trace-id は OTLP のエクスポート設定が無くても採番され、後段へは `traceparent` として伝わる（後段の span は Gateway の span の子になる）  
