@@ -3,9 +3,12 @@ package fakeidp_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/externaltoken"
@@ -20,15 +23,17 @@ const (
 	testClientID = "admin-ui"
 )
 
-func startFakeIDP(t *testing.T) string {
+func startFakeIDPWith(t *testing.T, clientID, secret string) string {
 	t.Helper()
 
 	server := httptest.NewUnstartedServer(nil)
 	t.Cleanup(server.Close)
 
 	handler, err := fakeidp.NewHandler(fakeidp.Config{
-		Issuer:   "http://" + server.Listener.Addr().String(),
-		Audience: testAudience,
+		Issuer:                    "http://" + server.Listener.Addr().String(),
+		Audience:                  testAudience,
+		IntrospectionClientID:     clientID,
+		IntrospectionClientSecret: secret,
 	})
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v, want nil", err)
@@ -38,6 +43,12 @@ func startFakeIDP(t *testing.T) string {
 	server.Start()
 
 	return server.URL
+}
+
+func startFakeIDP(t *testing.T) string {
+	t.Helper()
+
+	return startFakeIDPWith(t, "", "")
 }
 
 func get(t *testing.T, target, host string) map[string]any {
@@ -247,4 +258,246 @@ func verifyToken(t *testing.T, issuer, token string) externaltoken.Claims {
 	}
 
 	return claims
+}
+
+const (
+	testIntrospectionClientID   = "gateway-introspection"
+	testIntrospectionCredential = "introspection-client-credential"
+)
+
+func introspect(t *testing.T, issuer, clientID, secret, token string) (int, map[string]any) {
+	t.Helper()
+
+	form := url.Values{"token": {token}, "token_type_hint": {"access_token"}}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, issuer+fakeidp.IntrospectionPath, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v, want nil", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	if clientID != "" || secret != "" {
+		req.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(secret))
+	}
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v, want nil", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return res.StatusCode, nil
+	}
+
+	var body map[string]any
+
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("Decode() error = %v, want nil", err)
+	}
+
+	return res.StatusCode, body
+}
+
+func revoke(t *testing.T, issuer string, request map[string]any) int {
+	t.Helper()
+
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v, want nil", err)
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, issuer+fakeidp.RevokePath, bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v, want nil", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v, want nil", err)
+	}
+	defer res.Body.Close()
+
+	return res.StatusCode
+}
+
+func tokenRequest() map[string]any {
+	return map[string]any{
+		"token_use":   "tenant_access",
+		"sub":         testSubject,
+		"client_id":   testClientID,
+		"scope":       testScope,
+		"tenant_id":   testTenantID,
+		"ttl_seconds": 300,
+	}
+}
+
+func TestHandlerReportsAnIssuedTokenAsActive(t *testing.T) {
+	t.Parallel()
+
+	issuer := startFakeIDPWith(t, testIntrospectionClientID, testIntrospectionCredential)
+	token := issueToken(t, issuer, tokenRequest())
+
+	status, body := introspect(t, issuer, testIntrospectionClientID, testIntrospectionCredential, token)
+	if status != http.StatusOK {
+		t.Fatalf("POST %s status = %d, want %d", fakeidp.IntrospectionPath, status, http.StatusOK)
+	}
+
+	if got := body["active"]; got != true {
+		t.Fatalf("active = %#v, want true", got)
+	}
+
+	for member, want := range map[string]any{
+		"sub":       testSubject,
+		"client_id": testClientID,
+		"scope":     testScope,
+		"token_use": "tenant_access",
+	} {
+		if got := body[member]; got != want {
+			t.Errorf("%s = %#v, want %#v", member, got, want)
+		}
+	}
+
+	if got, named := body["jti"].(string); !named || got == "" {
+		t.Errorf("jti = %#v, want the identifier of the token", body["jti"])
+	}
+}
+
+func TestHandlerReportsARevokedTokenAsInactive(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]func(t *testing.T, issuer, token, jti string) map[string]any{
+		"by token": func(_ *testing.T, _, token, _ string) map[string]any {
+			return map[string]any{"token": token}
+		},
+		"by jti": func(_ *testing.T, _, _, jti string) map[string]any {
+			return map[string]any{"jti": jti}
+		},
+	}
+
+	for name, request := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			issuer := startFakeIDPWith(t, testIntrospectionClientID, testIntrospectionCredential)
+			token := issueToken(t, issuer, tokenRequest())
+
+			_, body := introspect(t, issuer, testIntrospectionClientID, testIntrospectionCredential, token)
+
+			jti, named := body["jti"].(string)
+			if !named {
+				t.Fatalf("jti = %#v, want the identifier of the token", body["jti"])
+			}
+
+			if status := revoke(t, issuer, request(t, issuer, token, jti)); status != http.StatusOK {
+				t.Fatalf("POST %s status = %d, want %d", fakeidp.RevokePath, status, http.StatusOK)
+			}
+
+			_, revoked := introspect(t, issuer, testIntrospectionClientID, testIntrospectionCredential, token)
+
+			if got := revoked["active"]; got != false {
+				t.Errorf("active = %#v, want false once the token is revoked", got)
+			}
+		})
+	}
+}
+
+func TestHandlerReportsAnUnknownTokenAsInactive(t *testing.T) {
+	t.Parallel()
+
+	issuer := startFakeIDPWith(t, testIntrospectionClientID, testIntrospectionCredential)
+	other := issueToken(t, startFakeIDPWith(t, testIntrospectionClientID, testIntrospectionCredential), tokenRequest())
+
+	for name, token := range map[string]string{
+		"a token another IdP issued": other,
+		"a value that is not a JWT":  "not-a-jwt",
+		"an empty token":             "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, body := introspect(t, issuer, testIntrospectionClientID, testIntrospectionCredential, token)
+
+			if got := body["active"]; got != false {
+				t.Errorf("active = %#v, want false", got)
+			}
+		})
+	}
+}
+
+func TestHandlerRefusesIntrospectionByAnUnknownClient(t *testing.T) {
+	t.Parallel()
+
+	configured := startFakeIDPWith(t, testIntrospectionClientID, testIntrospectionCredential)
+	token := issueToken(t, configured, tokenRequest())
+
+	tests := map[string]struct {
+		issuer   string
+		clientID string
+		secret   string
+	}{
+		"without credentials": {
+			issuer:   configured,
+			clientID: "",
+			secret:   "",
+		},
+		"with another client ID": {
+			issuer:   configured,
+			clientID: "another-client",
+			secret:   testIntrospectionCredential,
+		},
+		"with another secret": {
+			issuer:   configured,
+			clientID: testIntrospectionClientID,
+			secret:   "another-credential",
+		},
+		"against an IdP without an introspection client": {
+			issuer:   startFakeIDP(t),
+			clientID: testIntrospectionClientID,
+			secret:   testIntrospectionCredential,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			status, _ := introspect(t, test.issuer, test.clientID, test.secret, token)
+			if status != http.StatusUnauthorized {
+				t.Errorf("POST %s status = %d, want %d", fakeidp.IntrospectionPath, status, http.StatusUnauthorized)
+			}
+		})
+	}
+}
+
+func TestHandlerRefusesARevocationItCannotResolve(t *testing.T) {
+	t.Parallel()
+
+	issuer := startFakeIDPWith(t, testIntrospectionClientID, testIntrospectionCredential)
+
+	if status := revoke(t, issuer, map[string]any{"token": "not-a-jwt"}); status != http.StatusBadRequest {
+		t.Errorf("POST %s status = %d, want %d", fakeidp.RevokePath, status, http.StatusBadRequest)
+	}
+}
+
+func TestNewHandlerRejectsHalfAnIntrospectionClient(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]fakeidp.Config{
+		"without the secret":    {Issuer: "http://idp.example.com", Audience: testAudience, IntrospectionClientID: testIntrospectionClientID},
+		"without the client ID": {Issuer: "http://idp.example.com", Audience: testAudience, IntrospectionClientSecret: testIntrospectionCredential},
+	}
+
+	for name, config := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if _, err := fakeidp.NewHandler(config); !errors.Is(err, fakeidp.ErrInvalidConfig) {
+				t.Errorf("NewHandler() error = %v, want %v", err, fakeidp.ErrInvalidConfig)
+			}
+		})
+	}
 }
