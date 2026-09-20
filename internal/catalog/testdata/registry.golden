@@ -1,0 +1,2 @@
+/greet.v1.GreetService/Greet	destination=tolo-testbackend	anonymous=false	external=tenant_access	service=false	scopes=greeting.read	introspection=false
+/greet.v1.GreetService/Ping	destination=tolo-testbackend	anonymous=true	external=-	service=false	scopes=-	introspection=false
