@@ -4,14 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	connectrpc "connectrpc.com/connect"
+	"github.com/golang-jwt/jwt/v5"
+	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
+	"github.com/pj-hoakari/internal-jwt-handling/issuer"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -21,6 +26,7 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
 	infraconnect "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/authn"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/logging"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
@@ -36,6 +42,28 @@ const (
 const clientTraceparent = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 
 const clientTraceID = "0123456789abcdef0123456789abcdef"
+
+const (
+	acceptedToken  = "external-token-a"
+	scopelessToken = "external-token-b"
+	unknownToken   = "external-token-c"
+	internalToken  = "internal-token-a"
+)
+
+const (
+	greetScope       = "greeting.read"
+	externalSubject  = "user-1"
+	externalClientID = "admin-ui"
+	externalJTI      = "external-jti-1"
+	externalTenantID = "a1b2c3d4e5f60718"
+	issuedJTI        = "internal-jti-1"
+	issuedTxn        = "01920000-0000-7000-8000-000000000000"
+)
+
+var (
+	errUnknownExternalToken = errors.New("unknown external token")
+	errIssueRefused         = errors.New("the signing key is unavailable")
+)
 
 type response struct {
 	status int
@@ -61,6 +89,79 @@ func (localGreetService) Ping(_ context.Context, _ *connectrpc.Request[greetv1.P
 	return connectrpc.NewResponse(&greetv1.PingResponse{Message: "pong"}), nil
 }
 
+func (localGreetService) Greet(_ context.Context, req *connectrpc.Request[greetv1.GreetRequest]) (*connectrpc.Response[greetv1.GreetResponse], error) {
+	return connectrpc.NewResponse(&greetv1.GreetResponse{Greeting: "Hello, " + req.Msg.GetName() + "!"}), nil
+}
+
+type fakeVerifier struct {
+	tokens map[string]authn.ExternalToken
+}
+
+func (v fakeVerifier) Verify(_ context.Context, token string) (authn.ExternalToken, error) {
+	var zero authn.ExternalToken
+
+	verified, known := v.tokens[token]
+	if !known {
+		return zero, errUnknownExternalToken
+	}
+
+	return verified, nil
+}
+
+func externalToken(scope string) authn.ExternalToken {
+	return authn.ExternalToken{
+		Subject:           externalSubject,
+		ClientID:          externalClientID,
+		TokenUse:          internaljwt.TokenUseTenantAccess,
+		Scope:             scope,
+		JTI:               externalJTI,
+		TenantID:          externalTenantID,
+		EventID:           "",
+		ExpiresAt:         time.Now().Add(15 * time.Minute),
+		SenderConstrained: false,
+	}
+}
+
+func newAuthenticator() *authn.Authenticator {
+	return authn.NewAuthenticator(fakeVerifier{tokens: map[string]authn.ExternalToken{
+		acceptedToken:  externalToken(greetScope),
+		scopelessToken: externalToken(""),
+	}})
+}
+
+type stubIssuer struct {
+	issued issuer.Issued
+	err    error
+}
+
+func (s stubIssuer) IssueFromExternal(_ context.Context, _ issuer.ExternalTokenInput) (issuer.Issued, error) {
+	if s.err != nil {
+		return issuer.Issued{}, s.err
+	}
+
+	return s.issued, nil
+}
+
+func newStubIssuer() stubIssuer {
+	return stubIssuer{
+		issued: issuer.Issued{
+			Token: internalToken,
+			Claims: internaljwt.Claims{
+				RegisteredClaims: jwt.RegisteredClaims{ID: issuedJTI},
+				Txn:              issuedTxn,
+			},
+		},
+		err: nil,
+	}
+}
+
+func bearerRequest(procedure, token string) *http.Request {
+	req := newConnectRequest(procedure)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	return req
+}
+
 type fixture struct {
 	handler http.Handler
 	audit   *bytes.Buffer
@@ -81,6 +182,18 @@ func newRegistry(t *testing.T) *registry.Registry {
 func newFixture(t *testing.T, handlers map[string]http.Handler, trustedProxyHops int) fixture {
 	t.Helper()
 
+	return newConfiguredFixture(t, handlers, trustedProxyHops, nil, nil)
+}
+
+func newConfiguredFixture(
+	t *testing.T,
+	handlers map[string]http.Handler,
+	trustedProxyHops int,
+	authenticator *authn.Authenticator,
+	entryIssuer infraconnect.EntryIssuer,
+) fixture {
+	t.Helper()
+
 	logs := &bytes.Buffer{}
 	spans := tracetest.NewSpanRecorder()
 
@@ -92,6 +205,8 @@ func newFixture(t *testing.T, handlers map[string]http.Handler, trustedProxyHops
 			AddSource: false,
 			ProjectID: "",
 		})),
+		Authenticator:    authenticator,
+		Issuer:           entryIssuer,
 		TracerProvider:   sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans)),
 		TrustedProxyHops: trustedProxyHops,
 	})
@@ -438,6 +553,164 @@ func TestPipelineAuditsARejection(t *testing.T) {
 			assertCorrelated(t, record)
 			assertNoCorrelationHeaders(t, res.header)
 		})
+	}
+}
+
+func TestPipelineAuditsAnExchangedExternalToken(t *testing.T) {
+	t.Parallel()
+
+	fixture := newConfiguredFixture(t, newGreetHandlers(t), 0, newAuthenticator(), newStubIssuer())
+
+	res := sendRequest(t, fixture.handler, bearerRequest(authenticatedProcedure, acceptedToken))
+
+	if got, want := res.status, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d (body = %q)", got, want, res.body)
+	}
+
+	assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{
+		"method":    authenticatedProcedure,
+		"result":    "ok",
+		"client_id": externalClientID,
+		"sub":       externalSubject,
+		"token_use": internaljwt.TokenUseTenantAccess,
+		"src_jti":   externalJTI,
+		"txn":       issuedTxn,
+		"jti":       issuedJTI,
+	})
+}
+
+func TestPipelineAuditsARejectedExternalToken(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		token       string
+		wantStatus  int
+		wantResult  string
+		wantReason  string
+		wantSubject bool
+	}{
+		"a token the verifier does not accept": {
+			token:       unknownToken,
+			wantStatus:  http.StatusUnauthorized,
+			wantResult:  "unauthenticated",
+			wantReason:  "invalid_token",
+			wantSubject: false,
+		},
+		"a token without the required scope": {
+			token:       scopelessToken,
+			wantStatus:  http.StatusForbidden,
+			wantResult:  "permission_denied",
+			wantReason:  "missing_scope",
+			wantSubject: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			mounted := &counter{calls: 0}
+			fixture := newConfiguredFixture(
+				t,
+				map[string]http.Handler{greetMountPath: mounted},
+				0,
+				newAuthenticator(),
+				newStubIssuer(),
+			)
+
+			res := sendRequest(t, fixture.handler, bearerRequest(authenticatedProcedure, test.token))
+
+			if got := res.status; got != test.wantStatus {
+				t.Errorf("status = %d, want %d", got, test.wantStatus)
+			}
+
+			if mounted.calls != 0 {
+				t.Errorf("mounted handler calls = %d, want 0", mounted.calls)
+			}
+
+			record := singleAuditRecord(t, fixture.audit)
+
+			assertAudit(t, record, map[string]any{
+				"method":         authenticatedProcedure,
+				"result":         test.wantResult,
+				"failure_reason": test.wantReason,
+			})
+
+			if _, reported := record["sub"]; reported != test.wantSubject {
+				t.Errorf("audit.sub = %#v, want it reported = %v", record["sub"], test.wantSubject)
+			}
+
+			if _, reported := record["jti"]; reported {
+				t.Errorf("audit.jti = %#v, want it omitted on a rejection", record["jti"])
+			}
+		})
+	}
+}
+
+func TestPipelineReportsAFailedIssueAsInternal(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]infraconnect.EntryIssuer{
+		"the issuer fails":   stubIssuer{issued: issuer.Issued{}, err: errIssueRefused},
+		"there is no issuer": nil,
+	}
+
+	for name, entryIssuer := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			mounted := &counter{calls: 0}
+			fixture := newConfiguredFixture(
+				t,
+				map[string]http.Handler{greetMountPath: mounted},
+				0,
+				newAuthenticator(),
+				entryIssuer,
+			)
+
+			res := sendRequest(t, fixture.handler, bearerRequest(authenticatedProcedure, acceptedToken))
+
+			if got, want := res.status, http.StatusInternalServerError; got != want {
+				t.Errorf("status = %d, want %d", got, want)
+			}
+
+			if mounted.calls != 0 {
+				t.Errorf("mounted handler calls = %d, want 0", mounted.calls)
+			}
+
+			assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{
+				"method":         authenticatedProcedure,
+				"result":         "internal",
+				"failure_reason": "issue_failed",
+			})
+		})
+	}
+}
+
+func TestPipelineKeepsTheExchangedTokensOutOfTheLogs(t *testing.T) {
+	var processLogs bytes.Buffer
+
+	previous := slog.Default()
+
+	slog.SetDefault(logging.NewLogger(&processLogs, logging.Options{Level: slog.LevelDebug, AddSource: false, ProjectID: ""}))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	fixture := newConfiguredFixture(t, newGreetHandlers(t), 0, newAuthenticator(), newStubIssuer())
+
+	res := sendRequest(t, fixture.handler, bearerRequest(authenticatedProcedure, acceptedToken))
+
+	if got, want := res.status, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d (body = %q)", got, want, res.body)
+	}
+
+	for _, credential := range []string{acceptedToken, internalToken} {
+		if strings.Contains(fixture.audit.String(), credential) {
+			t.Errorf("audit log = %q, want it without %q", fixture.audit.String(), credential)
+		}
+
+		if strings.Contains(processLogs.String(), credential) {
+			t.Errorf("log = %q, want it without %q", processLogs.String(), credential)
+		}
 	}
 }
 

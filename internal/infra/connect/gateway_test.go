@@ -3,6 +3,9 @@ package connect_test
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -14,6 +17,9 @@ import (
 
 	connectrpc "connectrpc.com/connect"
 	"connectrpc.com/otelconnect"
+	"github.com/pj-hoakari/internal-jwt-handling/issuer"
+	"github.com/pj-hoakari/internal-jwt-handling/jwks"
+	"github.com/pj-hoakari/internal-jwt-handling/verifier"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -28,6 +34,13 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/logging"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/testbackend"
+)
+
+const (
+	gatewayIssuerID     = "service-gateway"
+	gatewaySigningKeyID = "dev-key-1"
+	backendAudience     = "tolo-testbackend"
 )
 
 type upstreamCall struct {
@@ -324,6 +337,202 @@ func TestGatewayGivesTheUpstreamItsOwnTraceContext(t *testing.T) {
 	if got := record["trace_id"]; got != upstreamTraceID {
 		t.Errorf("audit.trace_id = %v, want the trace ID the upstream saw (%q)", got, upstreamTraceID)
 	}
+}
+
+type gatewayKeyProvider struct {
+	keys issuer.KeySet
+}
+
+func (p gatewayKeyProvider) Current(context.Context) (issuer.KeySet, error) {
+	return p.keys, nil
+}
+
+type authorizationRecorder struct {
+	next    http.Handler
+	headers chan string
+}
+
+func (a authorizationRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	a.headers <- r.Header.Get("Authorization")
+
+	a.next.ServeHTTP(w, r)
+}
+
+type verifyingFixture struct {
+	client  greetv1connect.GreetServiceClient
+	headers chan string
+	audit   *bytes.Buffer
+}
+
+func newGatewayIssuer(t *testing.T) *issuer.Issuer {
+	t.Helper()
+
+	signing, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v, want nil", err)
+	}
+
+	gatewayIssuer, err := issuer.New(gatewayIssuerID, gatewayKeyProvider{
+		keys: issuer.KeySet{
+			Signing:   issuer.SigningKey{KeyID: gatewaySigningKeyID, Key: signing},
+			Published: nil,
+		},
+	})
+	if err != nil {
+		t.Fatalf("issuer.New() error = %v, want nil", err)
+	}
+
+	return gatewayIssuer
+}
+
+func newVerifyingBackend(t *testing.T, gatewayIssuer *issuer.Issuer) (string, chan string) {
+	t.Helper()
+
+	jwksServer := httptest.NewServer(httpapi.NewHandler(httpapi.PublicRoutes(httpapi.NewJWKSHandler(gatewayIssuer))))
+	t.Cleanup(jwksServer.Close)
+
+	cache, err := jwks.New(jwks.Config{
+		URL:             jwksServer.URL + httpapi.JWKSPath,
+		HTTPClient:      nil,
+		CacheTTL:        0,
+		RefreshCooldown: 0,
+		FailureCooldown: 0,
+		FetchTimeout:    2 * time.Second,
+		RetryBackoff:    []time.Duration{},
+		MaxDocumentSize: 0,
+	})
+	if err != nil {
+		t.Fatalf("jwks.New() error = %v, want nil", err)
+	}
+
+	tokenVerifier, err := verifier.New(gatewayIssuerID, backendAudience, cache)
+	if err != nil {
+		t.Fatalf("verifier.New() error = %v, want nil", err)
+	}
+
+	handler, err := testbackend.NewHandler(tokenVerifier)
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v, want nil", err)
+	}
+
+	headers := make(chan string, 8)
+
+	backend := httptest.NewServer(authorizationRecorder{next: handler, headers: headers})
+	t.Cleanup(backend.Close)
+
+	return backend.URL, headers
+}
+
+func newVerifyingGateway(t *testing.T) verifyingFixture {
+	t.Helper()
+
+	gatewayIssuer := newGatewayIssuer(t)
+	backendURL, headers := newVerifyingBackend(t, gatewayIssuer)
+
+	handlers, err := forward.Handlers(
+		catalog.Bindings(),
+		destinationsTo(t, backendURL),
+		forwardgen.Mounts(),
+		forward.NewHTTPClient(http.DefaultTransport),
+		[]connectrpc.ClientOption{connectrpc.WithInterceptors(forward.AuthorizationInterceptor())},
+		[]connectrpc.HandlerOption{connectrpc.WithInterceptors(infraconnect.AuditInterceptor())},
+	)
+	if err != nil {
+		t.Fatalf("Handlers() error = %v, want nil", err)
+	}
+
+	logs := &bytes.Buffer{}
+
+	gateway := httptest.NewServer(httpapi.NewHandler(infraconnect.Routes(infraconnect.Config{
+		Registry: newRegistry(t),
+		Handlers: handlers,
+		Audit: audit.NewEmitter(logging.NewLogger(logs, logging.Options{
+			Level:     slog.LevelInfo,
+			AddSource: false,
+			ProjectID: "",
+		})),
+		Authenticator:    newAuthenticator(),
+		Issuer:           gatewayIssuer,
+		TracerProvider:   sdktrace.NewTracerProvider(),
+		TrustedProxyHops: 0,
+	})))
+	t.Cleanup(gateway.Close)
+
+	return verifyingFixture{
+		client:  greetv1connect.NewGreetServiceClient(gateway.Client(), gateway.URL),
+		headers: headers,
+		audit:   logs,
+	}
+}
+
+func greetWith(t *testing.T, fixture verifyingFixture, token string) (*connectrpc.Response[greetv1.GreetResponse], error) {
+	t.Helper()
+
+	req := connectrpc.NewRequest(&greetv1.GreetRequest{Name: "tolo"})
+	req.Header().Set("Authorization", "Bearer "+token)
+
+	return fixture.client.Greet(t.Context(), req) //nolint:wrapcheck // the test asserts on the error the gateway returns
+}
+
+func TestGatewayExchangesAnExternalTokenTheUpstreamAccepts(t *testing.T) {
+	t.Parallel()
+
+	fixture := newVerifyingGateway(t)
+
+	res, err := greetWith(t, fixture, acceptedToken)
+	if err != nil {
+		t.Fatalf("Greet() error = %v, want nil", err)
+	}
+
+	if got, want := res.Msg.GetGreeting(), "Hello, tolo!"; got != want {
+		t.Errorf("greeting = %q, want %q", got, want)
+	}
+
+	authorization := <-fixture.headers
+
+	if authorization == "Bearer "+acceptedToken {
+		t.Error("the upstream saw the external token, want the internal JWT instead")
+	}
+
+	if !strings.HasPrefix(authorization, "Bearer ") {
+		t.Errorf("upstream Authorization = %q, want a bearer token", authorization)
+	}
+
+	record := singleAuditRecord(t, fixture.audit)
+
+	assertAudit(t, record, map[string]any{
+		"method":    authenticatedProcedure,
+		"result":    "ok",
+		"client_id": externalClientID,
+		"sub":       externalSubject,
+		"src_jti":   externalJTI,
+	})
+
+	if got, want := record["jti"], strings.TrimPrefix(authorization, "Bearer "); got == want {
+		t.Errorf("audit.jti = %v, want the jti of the internal JWT, not the token itself", got)
+	}
+}
+
+func TestGatewayStopsAnExternalTokenWithoutTheRequiredScope(t *testing.T) {
+	t.Parallel()
+
+	fixture := newVerifyingGateway(t)
+
+	_, err := greetWith(t, fixture, scopelessToken)
+
+	if got, want := gatewayError(t, err).Code(), connectrpc.CodePermissionDenied; got != want {
+		t.Errorf("code = %v, want %v", got, want)
+	}
+
+	if got := len(fixture.headers); got != 0 {
+		t.Errorf("upstream calls = %d, want 0", got)
+	}
+
+	assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{
+		"method":         authenticatedProcedure,
+		"result":         "permission_denied",
+		"failure_reason": "missing_scope",
+	})
 }
 
 func traceIDOf(t *testing.T, traceparent string) string {

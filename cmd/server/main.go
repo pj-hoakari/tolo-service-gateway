@@ -21,6 +21,7 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
 	infraconnect "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/authn"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forwardgen"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
@@ -112,6 +113,8 @@ func run() error {
 			Registry:         rpcRegistry,
 			Handlers:         rpcHandlers,
 			Audit:            newAuditEmitter(),
+			Authenticator:    authn.NewAuthenticator(nil),
+			Issuer:           internalIssuer,
 			TracerProvider:   otel.GetTracerProvider(),
 			TrustedProxyHops: cfg.TrustedProxyHops,
 		}),
@@ -191,7 +194,7 @@ func buildRPCHandlers(destinations registry.Destinations) (map[string]http.Handl
 		destinations,
 		forwardgen.Mounts(),
 		forward.NewHTTPClient(transport.Clone()),
-		[]connectrpc.ClientOption{connectrpc.WithInterceptors(tracing)},
+		[]connectrpc.ClientOption{connectrpc.WithInterceptors(tracing, forward.AuthorizationInterceptor())},
 		[]connectrpc.HandlerOption{connectrpc.WithInterceptors(infraconnect.AuditInterceptor())},
 	)
 	if err != nil {
