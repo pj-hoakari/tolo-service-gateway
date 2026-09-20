@@ -1,16 +1,21 @@
 package catalog
 
 import (
+	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1/relationv1connect"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1/tenantv1connect"
 
 	"github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/edgepolicy"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
 )
 
 const (
 	testBackendDestination      = "tolo-testbackend"
 	tenantManagementDestination = "tolo-tenant-management"
+
+	graphAuthoringCaller = "tolo-graph-authoring"
+	observationCaller    = "tolo-observation"
 )
 
 func Bindings() []registry.Binding {
@@ -42,6 +47,25 @@ func Overrides() registry.Overrides {
 			relationv1connect.RelationAdminServiceChangeTenantRoleProcedure,
 			relationv1connect.RelationAdminServiceGrantEventRoleProcedure,
 			relationv1connect.RelationAdminServiceRevokeRoleProcedure,
+		},
+	}
+}
+
+func Edges() []edgepolicy.Edge {
+	return []edgepolicy.Edge{
+		{
+			Caller:              graphAuthoringCaller,
+			Procedure:           tenantv1connect.TenantServiceGetEventProcedure,
+			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
+			MachineChain:        false,
+			NewMachineOrigin:    false,
+		},
+		{
+			Caller:              observationCaller,
+			Procedure:           tenantv1connect.TenantServiceGetObservationSettingsProcedure,
+			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
+			MachineChain:        true,
+			NewMachineOrigin:    false,
 		},
 	}
 }
