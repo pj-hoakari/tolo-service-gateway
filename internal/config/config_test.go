@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -734,4 +736,186 @@ func TestLoadTrustedProxyHops(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadIntrospection(t *testing.T) {
+	t.Parallel()
+
+	const credential = "introspection-client-credential"
+
+	secretFile := writeSecretFile(t, credential+"\n")
+
+	tests := map[string]struct {
+		issuer          string
+		clientID        string
+		secretFile      string
+		wantClientID    string
+		wantSecret      string
+		wantErrContains string
+	}{
+		"nothing set": {
+			issuer:          "https://idp.example.com",
+			clientID:        "",
+			secretFile:      "",
+			wantClientID:    "",
+			wantSecret:      "",
+			wantErrContains: "",
+		},
+		"both values set": {
+			issuer:          "https://idp.example.com",
+			clientID:        "gateway-introspection",
+			secretFile:      secretFile,
+			wantClientID:    "gateway-introspection",
+			wantSecret:      credential,
+			wantErrContains: "",
+		},
+		"the client ID without the secret file": {
+			issuer:          "https://idp.example.com",
+			clientID:        "gateway-introspection",
+			secretFile:      "",
+			wantClientID:    "",
+			wantSecret:      "",
+			wantErrContains: "IDP_INTROSPECTION_CLIENT_SECRET_FILE",
+		},
+		"the secret file without the client ID": {
+			issuer:          "https://idp.example.com",
+			clientID:        "",
+			secretFile:      secretFile,
+			wantClientID:    "",
+			wantSecret:      "",
+			wantErrContains: "IDP_INTROSPECTION_CLIENT_ID",
+		},
+		"introspection without the issuer": {
+			issuer:          "",
+			clientID:        "gateway-introspection",
+			secretFile:      secretFile,
+			wantClientID:    "",
+			wantSecret:      "",
+			wantErrContains: "IDP_ISSUER",
+		},
+		"a secret file that does not exist": {
+			issuer:          "https://idp.example.com",
+			clientID:        "gateway-introspection",
+			secretFile:      t.TempDir() + "/absent",
+			wantClientID:    "",
+			wantSecret:      "",
+			wantErrContains: "IDP_INTROSPECTION_CLIENT_SECRET_FILE",
+		},
+		"an empty secret file": {
+			issuer:          "https://idp.example.com",
+			clientID:        "gateway-introspection",
+			secretFile:      writeSecretFile(t, "\n"),
+			wantClientID:    "",
+			wantSecret:      "",
+			wantErrContains: "IDP_INTROSPECTION_CLIENT_SECRET_FILE",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(func(key string) string {
+				return map[string]string{
+					"INTERNAL_JWT_ISSUER":                  "service-gateway",
+					"INTERNAL_JWT_SIGNING_KEY_FILE":        "/etc/tolo/signing-key.pem",
+					"INTERNAL_JWT_SIGNING_KEY_ID":          "dev-key-1",
+					"TOLO_GATEWAY_DESTINATIONS_FILE":       "/etc/tolo/gateway/destinations.json",
+					"IDP_ISSUER":                           tt.issuer,
+					"IDP_AUDIENCE":                         idpAudienceFor(tt.issuer),
+					"IDP_INTROSPECTION_CLIENT_ID":          tt.clientID,
+					"IDP_INTROSPECTION_CLIENT_SECRET_FILE": tt.secretFile,
+				}[key]
+			})
+
+			if tt.wantErrContains != "" {
+				if err == nil {
+					t.Fatalf("Load() error = nil, want error")
+				}
+
+				if !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("Load() error = %q, want it to mention %q", err.Error(), tt.wantErrContains)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Load() error = %v, want nil", err)
+			}
+
+			if got := cfg.IDPIntrospectionClientID; got != tt.wantClientID {
+				t.Errorf("IDPIntrospectionClientID = %q, want %q", got, tt.wantClientID)
+			}
+
+			if got := cfg.IDPIntrospectionSecret; got != tt.wantSecret {
+				t.Errorf("IDPIntrospectionSecret = %q, want the value the file holds", got)
+			}
+
+			if got := cfg.IDPIntrospectionSecretFile; got != tt.secretFile {
+				t.Errorf("IDPIntrospectionSecretFile = %q, want %q", got, tt.secretFile)
+			}
+		})
+	}
+}
+
+func TestLoadTrimsTheSecretFile(t *testing.T) {
+	t.Parallel()
+
+	const credential = "introspection-client-credential"
+
+	tests := map[string]string{
+		"without a trailing newline": credential,
+		"with a trailing newline":    credential + "\n",
+		"with a CRLF line ending":    credential + "\r\n",
+		"with several newlines":      credential + "\n\n",
+	}
+
+	for name, content := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			secretFile := writeSecretFile(t, content)
+
+			cfg, err := config.Load(func(key string) string {
+				return map[string]string{
+					"INTERNAL_JWT_ISSUER":                  "service-gateway",
+					"INTERNAL_JWT_SIGNING_KEY_FILE":        "/etc/tolo/signing-key.pem",
+					"INTERNAL_JWT_SIGNING_KEY_ID":          "dev-key-1",
+					"TOLO_GATEWAY_DESTINATIONS_FILE":       "/etc/tolo/gateway/destinations.json",
+					"IDP_ISSUER":                           "https://idp.example.com",
+					"IDP_AUDIENCE":                         "backend-api",
+					"IDP_INTROSPECTION_CLIENT_ID":          "gateway-introspection",
+					"IDP_INTROSPECTION_CLIENT_SECRET_FILE": secretFile,
+				}[key]
+			})
+			if err != nil {
+				t.Fatalf("Load() error = %v, want nil", err)
+			}
+
+			if got := cfg.IDPIntrospectionSecret; got != credential {
+				t.Errorf("IDPIntrospectionSecret = %q, want the line the file holds", got)
+			}
+		})
+	}
+}
+
+func writeSecretFile(t *testing.T, content string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "introspection-client-secret")
+
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v, want nil", err)
+	}
+
+	return path
+}
+
+func idpAudienceFor(issuer string) string {
+	if issuer == "" {
+		return ""
+	}
+
+	return "backend-api"
 }
