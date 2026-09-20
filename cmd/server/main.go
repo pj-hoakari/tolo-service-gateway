@@ -109,25 +109,35 @@ func run() error {
 	readiness := httpapi.NewReadiness()
 	readiness.Register(signingKeyReadinessCheck, signingKeyCheck(signingKeys))
 
-	authenticator := authn.NewAuthenticator(nil)
+	authenticator := authn.NewAuthenticator(nil, nil)
 	idpErr := make(chan error, 1)
 
 	if cfg.IDPIssuer == "" {
 		slog.Warn("external token verification is disabled because IDP_ISSUER is not set; every request that carries credentials is rejected as unauthenticated")
 	} else {
 		provider, err := idp.New(idp.Config{
-			Issuer:     cfg.IDPIssuer,
-			Audience:   cfg.IDPAudience,
-			Algorithms: cfg.IDPAlgorithms,
-			HTTPClient: idp.NewHTTPClient(),
-			RetryDelay: 0,
-			Clock:      nil,
+			Issuer:                    cfg.IDPIssuer,
+			Audience:                  cfg.IDPAudience,
+			Algorithms:                cfg.IDPAlgorithms,
+			IntrospectionClientID:     cfg.IDPIntrospectionClientID,
+			IntrospectionClientSecret: cfg.IDPIntrospectionSecret,
+			HTTPClient:                idp.NewHTTPClient(),
+			RetryDelay:                0,
+			Clock:                     nil,
 		})
 		if err != nil {
 			return fmt.Errorf("build the external token verifier: %w", err)
 		}
 
-		authenticator = authn.NewAuthenticator(provider)
+		var introspector authn.Introspector
+
+		if cfg.IDPIntrospectionClientID == "" {
+			slog.Warn("token introspection is disabled because IDP_INTROSPECTION_CLIENT_ID is not set; the administrative write RPCs are rejected as unauthenticated")
+		} else {
+			introspector = provider
+		}
+
+		authenticator = authn.NewAuthenticator(provider, introspector)
 
 		readiness.Register(idpReadinessCheck, provider.Ready)
 
@@ -282,6 +292,13 @@ func configLogAttrs(cfg config.Config) []any {
 			"idp_issuer", cfg.IDPIssuer,
 			"idp_audience", cfg.IDPAudience,
 			"idp_algorithms", cfg.IDPAlgorithms,
+		)
+	}
+
+	if cfg.IDPIntrospectionClientID != "" {
+		attrs = append(attrs,
+			"idp_introspection_client_id", cfg.IDPIntrospectionClientID,
+			"idp_introspection_client_secret_file", cfg.IDPIntrospectionSecretFile,
 		)
 	}
 

@@ -93,9 +93,16 @@ curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8080/t
 IdP へ届かない・5xx が返るといった一時的な失敗は 5 秒ごとに再試行し続けるが、metadata が設定と食い違う場合や issuer が URL として使えない場合は設定の誤りとしてプロセスが終了する  
 受理する claim は Gateway の仕様（`docs/service_gateway_spec.md`）どおりで、IdP の現状に合わせた読み替えはしない  
 現時点の tolo-idp が発行するトークンは `tenant_id` の形式などが仕様に追随していないため拒否される  
-失効照会（introspection）の対象である管理系書き込み 6 RPC は、失効照会が実装されるまで、検証と認可を通っても `unauthenticated`（理由 `introspection_unavailable`）になる
+管理系書き込み 6 RPC（ArchiveTenant、ChangeTenantContract、AddTenantMember、ChangeTenantRole、GrantEventRole、RevokeRole）は、検証と認可を通ったあとに IdP へ失効照会（introspection）を行い、`active` なトークンだけを受理する  
+照会の結果は jti 単位で 60 秒キャッシュするため、失効はその範囲で遅れて反映される  
+IdP へ照会できないときは当該 6 RPC だけを `unauthenticated`（理由 `introspection_unavailable`）で拒否し、他の RPC は通す  
+失効済みと報告されたトークンは `unauthenticated`（理由 `token_revoked`）になる  
+`IDP_INTROSPECTION_CLIENT_ID` と `IDP_INTROSPECTION_CLIENT_SECRET_FILE` が未設定なら照会できないため、6 RPC は `introspection_unavailable` で拒否され続ける（起動時に警告を 1 回記録する）  
+introspection を設定したのに IdP の metadata に `introspection_endpoint` が無い場合は、設定の誤りとしてプロセスが終了する
 
 compose の `fakeidp`（`http://localhost:8082`）は開発専用の偽 IdP で、`POST /token` の本文をそのまま claim にしたトークンを検証なしで発行する  
+`POST /oauth2/introspect` は自分が発行した期限内のトークンを `active` と答え、開発専用の `POST /revoke`（`{"jti":"..."}` または `{"token":"..."}`）で失効させられる  
+introspection の client 認証に使う secret は compose の `keygen` が名前付きボリュームへ生成し、`server` と `fakeidp` の両方が読み込み専用で読む  
 本番相当の環境へ配備してはならない
 
 ```bash
@@ -110,6 +117,22 @@ curl -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKE
 このトークンでは `Greet` が挨拶を返す  
 `scope` を `other.read` にしたトークンでは `permission_denied`、`tenant_id` を `tenant-a` にしたトークンでは `unauthenticated` になる
 
+失効照会は次のように確かめられる
+
+```bash
+TOKEN=$(curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"token_use":"tenant_access","sub":"user-1","client_id":"admin-ui","scope":"tenant.write","tenant_id":"0123456789abcdef","ttl_seconds":300}' \
+  http://localhost:8082/token | jq -r .access_token)
+
+curl -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
+  -d '{"tenant_id":"0123456789abcdef"}' http://localhost:8080/tolo.tenant.v1.TenantService/ArchiveTenant
+
+curl -X POST -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\"}" http://localhost:8082/revoke
+```
+
+`ArchiveTenant` は認証・認可・失効照会を通り、宛先の Tenant Management が居ないため `unavailable`（`upstream unavailable`）になる  
+`/revoke` の後に新しく発行したトークンで同じ RPC を呼ぶと `unauthenticated` になる（同じトークンは 60 秒のキャッシュが切れるまで結果が変わらない）
+
 #### 環境変数
 
 | 変数 | 必須 | 既定値 | 内容 |
@@ -122,6 +145,8 @@ curl -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKE
 | `IDP_ISSUER` | 任意 | なし | 外部 IdP の issuer（絶対 HTTP URL。userinfo・query・fragment は持てない）。設定すると外部トークンの検証が有効になる。`INTERNAL_JWT_ISSUER` と同じ値は設定エラーになる |
 | `IDP_AUDIENCE` | `IDP_ISSUER` があるとき必須 | なし | 外部トークンに要求する `aud`（バックエンド API 全体の論理 audience。例 `backend-api`）。`IDP_ISSUER` 無しで指定すると設定エラーになる |
 | `IDP_ALGORITHMS` | 任意 | `RS256` | 受理する署名アルゴリズムのカンマ区切り。`RS256` と `ES256` だけを指定でき、それ以外の値・空要素・重複と、`IDP_ISSUER` 無しの指定は設定エラーになる |
+| `IDP_INTROSPECTION_CLIENT_ID` | 任意 | なし | 失効照会（introspection）を呼ぶための client ID。`IDP_INTROSPECTION_CLIENT_SECRET_FILE` と対で設定する |
+| `IDP_INTROSPECTION_CLIENT_SECRET_FILE` | `IDP_INTROSPECTION_CLIENT_ID` があるとき必須 | なし | client secret を 1 行で収めたファイルのパス（末尾の改行は除く）。起動時に 1 回読み込み、読めない・空の場合は起動に失敗する。片方だけの指定と、`IDP_ISSUER` 無しの指定は設定エラーになる |
 | `TOLO_GATEWAY_DESTINATIONS_FILE` | 必須 | なし | 宛先設定ファイル（JSON）のパス。起動時に読み込み、読めない・形式が不正・RPC 登録表と噛み合わない場合は起動に失敗する |
 | `TOLO_GATEWAY_TRUSTED_PROXY_HOPS` | 任意 | `0` | 信頼する前段プロキシの段数（0〜16 の整数）。監査ログの `source_ip` を `X-Forwarded-For` の右から何番目で採るかを決める。範囲外の値と整数でない値は設定エラーになる |
 

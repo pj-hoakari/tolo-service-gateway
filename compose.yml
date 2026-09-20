@@ -10,8 +10,14 @@ services:
                 chown 65532:65532 /keys/signing-key.pem
                 chmod 0400 /keys/signing-key.pem
               fi
+              if [ ! -f /idp/introspection-client-secret ]; then
+                openssl rand -hex 16 > /idp/introspection-client-secret
+                chown 65532:65532 /idp/introspection-client-secret
+                chmod 0400 /idp/introspection-client-secret
+              fi
         volumes:
             - internal-jwt-keys:/keys
+            - idp-introspection:/idp
         restart: "no"
 
     server:
@@ -26,10 +32,13 @@ services:
             TOLO_GATEWAY_DESTINATIONS_FILE: /etc/tolo/gateway/destinations.json
             IDP_ISSUER: http://fakeidp:8080
             IDP_AUDIENCE: backend-api
+            IDP_INTROSPECTION_CLIENT_ID: gateway-introspection
+            IDP_INTROSPECTION_CLIENT_SECRET_FILE: /etc/tolo/idp/introspection-client-secret
         ports:
             - "8080:8080"
         volumes:
             - internal-jwt-keys:/etc/tolo/keys:ro
+            - idp-introspection:/etc/tolo/idp:ro
             - ./config/compose/destinations.json:/etc/tolo/gateway/destinations.json:ro
         depends_on:
             keygen:
@@ -45,8 +54,15 @@ services:
             SERVER_ADDR: :8080
             FAKE_IDP_ISSUER: http://fakeidp:8080
             FAKE_IDP_AUDIENCE: backend-api
+            FAKE_IDP_INTROSPECTION_CLIENT_ID: gateway-introspection
+            FAKE_IDP_INTROSPECTION_CLIENT_SECRET_FILE: /etc/tolo/idp/introspection-client-secret
         ports:
             - "8082:8080"
+        volumes:
+            - idp-introspection:/etc/tolo/idp:ro
+        depends_on:
+            keygen:
+                condition: service_completed_successfully
 
     testbackend:
         build:
@@ -65,3 +81,4 @@ services:
 
 volumes:
     internal-jwt-keys:
+    idp-introspection:

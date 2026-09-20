@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,15 +24,19 @@ const (
 )
 
 const (
-	envListenAddr = "SERVER_ADDR"
-	envIssuer     = "FAKE_IDP_ISSUER"
-	envAudience   = "FAKE_IDP_AUDIENCE"
+	envListenAddr             = "SERVER_ADDR"
+	envIssuer                 = "FAKE_IDP_ISSUER"
+	envAudience               = "FAKE_IDP_AUDIENCE"
+	envIntrospectionClientID   = "FAKE_IDP_INTROSPECTION_CLIENT_ID"
+	envIntrospectionSecretFile = "FAKE_IDP_INTROSPECTION_CLIENT_SECRET_FILE" //nolint:gosec // the name of an environment variable holding a path, not a credential
 )
 
 type config struct {
-	ListenAddr string
-	Issuer     string
-	Audience   string
+	ListenAddr                string
+	Issuer                    string
+	Audience                  string
+	IntrospectionClientID     string
+	IntrospectionClientSecret string
 }
 
 func main() {
@@ -61,10 +66,16 @@ func run() error {
 		"addr", cfg.ListenAddr,
 		"issuer", cfg.Issuer,
 		"audience", cfg.Audience,
+		"introspection_client_id", cfg.IntrospectionClientID,
 	)
 	slog.Warn("the fake IdP signs tokens without any checks; it is for development only and must not be deployed to a production-like environment")
 
-	handler, err := fakeidp.NewHandler(fakeidp.Config{Issuer: cfg.Issuer, Audience: cfg.Audience})
+	handler, err := fakeidp.NewHandler(fakeidp.Config{
+		Issuer:                    cfg.Issuer,
+		Audience:                  cfg.Audience,
+		IntrospectionClientID:     cfg.IntrospectionClientID,
+		IntrospectionClientSecret: cfg.IntrospectionClientSecret,
+	})
 	if err != nil {
 		return fmt.Errorf("build the fake idp handler: %w", err)
 	}
@@ -111,6 +122,8 @@ func loadConfig(getenv func(string) string) (config, error) {
 
 	issuer := getenv(envIssuer)
 	audience := getenv(envAudience)
+	clientID := getenv(envIntrospectionClientID)
+	secretFile := getenv(envIntrospectionSecretFile)
 
 	var errs []error
 
@@ -122,13 +135,46 @@ func loadConfig(getenv func(string) string) (config, error) {
 		errs = append(errs, missingEnvError(envAudience))
 	}
 
+	secret, err := loadIntrospectionSecret(clientID, secretFile)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
 	if err := errors.Join(errs...); err != nil {
 		var zero config
 
 		return zero, err
 	}
 
-	return config{ListenAddr: listenAddr, Issuer: issuer, Audience: audience}, nil
+	return config{
+		ListenAddr:                listenAddr,
+		Issuer:                    issuer,
+		Audience:                  audience,
+		IntrospectionClientID:     clientID,
+		IntrospectionClientSecret: secret,
+	}, nil
+}
+
+func loadIntrospectionSecret(clientID, secretFile string) (string, error) {
+	if clientID == "" && secretFile == "" {
+		return "", nil
+	}
+
+	if clientID == "" || secretFile == "" {
+		return "", fmt.Errorf("%s and %s are set together or not at all", envIntrospectionClientID, envIntrospectionSecretFile)
+	}
+
+	raw, err := os.ReadFile(secretFile) //nolint:gosec // the path is operator configuration read once at startup, never request input
+	if err != nil {
+		return "", fmt.Errorf("%s: read %s: %w", envIntrospectionSecretFile, secretFile, err)
+	}
+
+	secret := strings.TrimRight(string(raw), "\r\n")
+	if secret == "" {
+		return "", fmt.Errorf("%s: %s holds no secret", envIntrospectionSecretFile, secretFile)
+	}
+
+	return secret, nil
 }
 
 func newLogger() (*slog.Logger, error) {

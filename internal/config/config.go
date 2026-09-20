@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +25,9 @@ const (
 	envIDPAlgorithms     = "IDP_ALGORITHMS"
 	envDestinationsFile  = "TOLO_GATEWAY_DESTINATIONS_FILE"
 	envTrustedProxyHops  = "TOLO_GATEWAY_TRUSTED_PROXY_HOPS"
+
+	envIDPIntrospectionClientID   = "IDP_INTROSPECTION_CLIENT_ID"
+	envIDPIntrospectionSecretFile = "IDP_INTROSPECTION_CLIENT_SECRET_FILE" //nolint:gosec // the name of an environment variable holding a path, not a credential
 )
 
 const publishedKeySeparator = "="
@@ -40,15 +44,18 @@ type KeyFile struct {
 }
 
 type Config struct {
-	ListenAddr       string
-	IssuerID         string
-	SigningKey       KeyFile
-	PublishedKeys    []KeyFile
-	IDPIssuer        string
-	IDPAudience      string
-	IDPAlgorithms    []string
-	DestinationsFile string
-	TrustedProxyHops int
+	ListenAddr                 string
+	IssuerID                   string
+	SigningKey                 KeyFile
+	PublishedKeys              []KeyFile
+	IDPIssuer                  string
+	IDPAudience                string
+	IDPAlgorithms              []string
+	IDPIntrospectionClientID   string
+	IDPIntrospectionSecretFile string
+	IDPIntrospectionSecret     string
+	DestinationsFile           string
+	TrustedProxyHops           int
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -102,6 +109,14 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 
+	introspectionClientID := getenv(envIDPIntrospectionClientID)
+	introspectionSecretFile := getenv(envIDPIntrospectionSecretFile)
+
+	introspectionSecret, err := loadIntrospectionSecret(idpIssuer, introspectionClientID, introspectionSecretFile)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
 	if err := errors.Join(errs...); err != nil {
 		var zero Config
 
@@ -109,16 +124,64 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	return Config{
-		ListenAddr:       listenAddr,
-		IssuerID:         issuerID,
-		SigningKey:       KeyFile{ID: signingKeyID, Path: signingKeyFile},
-		PublishedKeys:    publishedKeys,
-		IDPIssuer:        idpIssuer,
-		IDPAudience:      idpAudience,
-		IDPAlgorithms:    idpAlgorithms,
-		DestinationsFile: destinationsFile,
-		TrustedProxyHops: trustedProxyHops,
+		ListenAddr:                 listenAddr,
+		IssuerID:                   issuerID,
+		SigningKey:                 KeyFile{ID: signingKeyID, Path: signingKeyFile},
+		PublishedKeys:              publishedKeys,
+		IDPIssuer:                  idpIssuer,
+		IDPAudience:                idpAudience,
+		IDPAlgorithms:              idpAlgorithms,
+		IDPIntrospectionClientID:   introspectionClientID,
+		IDPIntrospectionSecretFile: introspectionSecretFile,
+		IDPIntrospectionSecret:     introspectionSecret,
+		DestinationsFile:           destinationsFile,
+		TrustedProxyHops:           trustedProxyHops,
 	}, nil
+}
+
+func loadIntrospectionSecret(issuer, clientID, secretFile string) (string, error) {
+	if clientID == "" && secretFile == "" {
+		return "", nil
+	}
+
+	var errs []error
+
+	if clientID == "" {
+		errs = append(errs, fmt.Errorf("%s is set but %s is not", envIDPIntrospectionSecretFile, envIDPIntrospectionClientID))
+	}
+
+	if secretFile == "" {
+		errs = append(errs, fmt.Errorf("%s is set but %s is not", envIDPIntrospectionClientID, envIDPIntrospectionSecretFile))
+	}
+
+	if issuer == "" {
+		errs = append(errs, fmt.Errorf("introspection is configured but %s is not set", envIDPIssuer))
+	}
+
+	if err := errors.Join(errs...); err != nil {
+		return "", err
+	}
+
+	secret, err := readSecretFile(secretFile)
+	if err != nil {
+		return "", err
+	}
+
+	return secret, nil
+}
+
+func readSecretFile(path string) (string, error) {
+	raw, err := os.ReadFile(path) //nolint:gosec // the path is operator configuration read once at startup, never request input
+	if err != nil {
+		return "", fmt.Errorf("%s: read %s: %w", envIDPIntrospectionSecretFile, path, err)
+	}
+
+	secret := strings.TrimRight(string(raw), "\r\n")
+	if secret == "" {
+		return "", fmt.Errorf("%s: %s holds no secret", envIDPIntrospectionSecretFile, path)
+	}
+
+	return secret, nil
 }
 
 func parseIDP(issuer, audience, algorithms string) ([]string, error) {

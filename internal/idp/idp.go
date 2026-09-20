@@ -24,30 +24,38 @@ var (
 	ErrNotResolved   = errors.New("idp: the IdP metadata is not resolved yet")
 )
 
-var _ authn.ExternalVerifier = (*Provider)(nil)
+var (
+	_ authn.ExternalVerifier = (*Provider)(nil)
+	_ authn.Introspector     = (*Provider)(nil)
+)
 
 type Config struct {
-	Issuer     string
-	Audience   string
-	Algorithms []string
-	HTTPClient *http.Client
-	RetryDelay time.Duration
-	Clock      func() time.Time
+	Issuer                    string
+	Audience                  string
+	Algorithms                []string
+	IntrospectionClientID     string
+	IntrospectionClientSecret string
+	HTTPClient                *http.Client
+	RetryDelay                time.Duration
+	Clock                     func() time.Time
 }
 
 type resolution struct {
-	metadata externaltoken.Metadata
-	verifier *externaltoken.Verifier
+	metadata     externaltoken.Metadata
+	verifier     *externaltoken.Verifier
+	introspector *externaltoken.Introspector
 }
 
 type Provider struct {
-	issuer     string
-	audience   string
-	algorithms []string
-	client     *http.Client
-	retryDelay time.Duration
-	clock      func() time.Time
-	resolved   atomic.Pointer[resolution]
+	issuer                    string
+	audience                  string
+	algorithms                []string
+	introspectionClientID     string
+	introspectionClientSecret string
+	client                    *http.Client
+	retryDelay                time.Duration
+	clock                     func() time.Time
+	resolved                  atomic.Pointer[resolution]
 }
 
 func New(config Config) (*Provider, error) {
@@ -69,14 +77,20 @@ func New(config Config) (*Provider, error) {
 		retryDelay = DefaultRetryDelay
 	}
 
+	if (config.IntrospectionClientID == "") != (config.IntrospectionClientSecret == "") {
+		return nil, fmt.Errorf("%w: the introspection client ID and its secret are set together or not at all", ErrInvalidConfig)
+	}
+
 	return &Provider{
-		issuer:     config.Issuer,
-		audience:   config.Audience,
-		algorithms: slices.Clone(config.Algorithms),
-		client:     client,
-		retryDelay: retryDelay,
-		clock:      config.Clock,
-		resolved:   atomic.Pointer[resolution]{},
+		issuer:                    config.Issuer,
+		audience:                  config.Audience,
+		algorithms:                slices.Clone(config.Algorithms),
+		introspectionClientID:     config.IntrospectionClientID,
+		introspectionClientSecret: config.IntrospectionClientSecret,
+		client:                    client,
+		retryDelay:                retryDelay,
+		clock:                     config.Clock,
+		resolved:                  atomic.Pointer[resolution]{},
 	}, nil
 }
 
@@ -147,14 +161,45 @@ func (p *Provider) resolve(ctx context.Context, metadata externaltoken.Metadata)
 		return fmt.Errorf("build the external token verifier: %w", err)
 	}
 
-	p.resolved.Store(&resolution{metadata: metadata, verifier: verifier})
+	introspector, err := p.newIntrospector(metadata)
+	if err != nil {
+		return err
+	}
+
+	p.resolved.Store(&resolution{metadata: metadata, verifier: verifier, introspector: introspector})
 
 	slog.InfoContext(ctx, "the IdP metadata is resolved",
 		slog.String("issuer", metadata.Issuer),
-		slog.Bool("introspection", metadata.IntrospectionEndpoint != ""),
+		slog.Bool("introspection", introspector != nil),
 	)
 
 	return nil
+}
+
+func (p *Provider) newIntrospector(metadata externaltoken.Metadata) (*externaltoken.Introspector, error) {
+	if p.introspectionClientID == "" {
+		return nil, nil //nolint:nilnil // an unconfigured introspector is not a failure
+	}
+
+	if metadata.IntrospectionEndpoint == "" {
+		return nil, fmt.Errorf("%w: the IdP metadata has no introspection_endpoint", ErrInvalidConfig)
+	}
+
+	introspector, err := externaltoken.NewIntrospector(externaltoken.IntrospectorConfig{
+		Endpoint:     metadata.IntrospectionEndpoint,
+		ClientID:     p.introspectionClientID,
+		ClientSecret: p.introspectionClientSecret,
+		HTTPClient:   p.client,
+		CacheTTL:     0,
+		Timeout:      0,
+		MaxEntries:   0,
+		Clock:        p.clock,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build the token introspector: %w", err)
+	}
+
+	return introspector, nil
 }
 
 func fatal(err error) bool {
@@ -191,6 +236,24 @@ func (p *Provider) Verify(ctx context.Context, token string) (authn.ExternalToke
 		ExpiresAt:         claims.ExpiresAt,
 		SenderConstrained: claims.Confirmation != "",
 	}, nil
+}
+
+func (p *Provider) Active(ctx context.Context, token string, verified authn.ExternalToken) (bool, error) {
+	current := p.resolved.Load()
+	if current == nil {
+		return false, fmt.Errorf("%w: %w", externaltoken.ErrIntrospectionUnavailable, ErrNotResolved)
+	}
+
+	if current.introspector == nil {
+		return false, fmt.Errorf("%w: introspection is not configured", externaltoken.ErrIntrospectionUnavailable)
+	}
+
+	active, err := current.introspector.Active(ctx, token, verified.JTI, verified.ExpiresAt)
+	if err != nil {
+		return false, fmt.Errorf("ask the IdP whether the token is active: %w", err)
+	}
+
+	return active, nil
 }
 
 func (p *Provider) Ready(_ context.Context) error {

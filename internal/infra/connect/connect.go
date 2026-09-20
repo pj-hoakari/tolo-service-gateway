@@ -55,7 +55,7 @@ func Routes(cfg Config) func(mux *http.ServeMux) {
 	tracer := tracerOf(cfg.TracerProvider)
 
 	if cfg.Authenticator == nil {
-		cfg.Authenticator = authn.NewAuthenticator(nil)
+		cfg.Authenticator = authn.NewAuthenticator(nil, nil)
 	}
 
 	return func(mux *http.ServeMux) {

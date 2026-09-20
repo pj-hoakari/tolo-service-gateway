@@ -46,6 +46,9 @@ const (
 	gatewaySigningKeyID = "dev-key-1"
 	backendAudience     = "tolo-testbackend"
 	externalAudience    = "backend-api"
+
+	introspectionClientID   = "gateway-introspection"
+	introspectionCredential = "introspection-client-credential"
 )
 
 type upstreamCall struct {
@@ -431,10 +434,10 @@ func newVerifyingBackend(t *testing.T, gatewayIssuer *issuer.Issuer) (string, ch
 func newVerifyingGateway(t *testing.T) verifyingFixture {
 	t.Helper()
 
-	return newVerifyingGatewayWith(t, newAuthenticator())
+	return newVerifyingGatewayWith(t, newAuthenticator(), newRegistry(t))
 }
 
-func newVerifyingGatewayWith(t *testing.T, authenticator *authn.Authenticator) verifyingFixture {
+func newVerifyingGatewayWith(t *testing.T, authenticator *authn.Authenticator, built *registry.Registry) verifyingFixture {
 	t.Helper()
 
 	gatewayIssuer := newGatewayIssuer(t)
@@ -455,7 +458,7 @@ func newVerifyingGatewayWith(t *testing.T, authenticator *authn.Authenticator) v
 	logs := &bytes.Buffer{}
 
 	gateway := httptest.NewServer(httpapi.NewHandler(infraconnect.Routes(infraconnect.Config{
-		Registry: newRegistry(t),
+		Registry: built,
 		Handlers: handlers,
 		Audit: audit.NewEmitter(logging.NewLogger(logs, logging.Options{
 			Level:     slog.LevelInfo,
@@ -546,15 +549,17 @@ func TestGatewayStopsAnExternalTokenWithoutTheRequiredScope(t *testing.T) {
 	})
 }
 
-func startFakeIDP(t *testing.T) string {
+func startFakeIDPWith(t *testing.T, clientID, secret string) *httptest.Server {
 	t.Helper()
 
 	server := httptest.NewUnstartedServer(nil)
 	t.Cleanup(server.Close)
 
 	handler, err := fakeidp.NewHandler(fakeidp.Config{
-		Issuer:   "http://" + server.Listener.Addr().String(),
-		Audience: externalAudience,
+		Issuer:                    "http://" + server.Listener.Addr().String(),
+		Audience:                  externalAudience,
+		IntrospectionClientID:     clientID,
+		IntrospectionClientSecret: secret,
 	})
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v, want nil", err)
@@ -563,7 +568,13 @@ func startFakeIDP(t *testing.T) string {
 	server.Config.Handler = handler
 	server.Start()
 
-	return server.URL
+	return server
+}
+
+func startFakeIDP(t *testing.T) string {
+	t.Helper()
+
+	return startFakeIDPWith(t, "", "").URL
 }
 
 func newIDPGateway(t *testing.T) (verifyingFixture, string) {
@@ -584,7 +595,152 @@ func newIDPGateway(t *testing.T) (verifyingFixture, string) {
 		t.Fatalf("Run() error = %v, want nil", err)
 	}
 
-	return newVerifyingGatewayWith(t, authn.NewAuthenticator(provider)), issuer
+	return newVerifyingGatewayWith(t, authn.NewAuthenticator(provider, nil), newRegistry(t)), issuer
+}
+
+func introspectingRegistry(t *testing.T) *registry.Registry {
+	t.Helper()
+
+	built, err := registry.Build(
+		catalog.Bindings(),
+		registry.Overrides{Introspection: []string{greetv1connect.GreetServiceGreetProcedure}},
+		protoregistry.GlobalFiles,
+	)
+	if err != nil {
+		t.Fatalf("Build() error = %v, want nil", err)
+	}
+
+	return built
+}
+
+func newIntrospectingGateway(t *testing.T) (verifyingFixture, *httptest.Server) {
+	t.Helper()
+
+	idpServer := startFakeIDPWith(t, introspectionClientID, introspectionCredential)
+
+	provider, err := idp.New(idp.Config{
+		Issuer:                    idpServer.URL,
+		Audience:                  externalAudience,
+		Algorithms:                []string{"RS256"},
+		IntrospectionClientID:     introspectionClientID,
+		IntrospectionClientSecret: introspectionCredential,
+	})
+	if err != nil {
+		t.Fatalf("idp.New() error = %v, want nil", err)
+	}
+
+	if err := provider.Run(t.Context()); err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+
+	fixture := newVerifyingGatewayWith(t, authn.NewAuthenticator(provider, provider), introspectingRegistry(t))
+
+	return fixture, idpServer
+}
+
+func revokeExternalToken(t *testing.T, issuer, token string) {
+	t.Helper()
+
+	encoded, err := json.Marshal(map[string]any{"token": token})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v, want nil", err)
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, issuer+fakeidp.RevokePath, bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v, want nil", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v, want nil", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("POST %s status = %d, want %d", fakeidp.RevokePath, res.StatusCode, http.StatusOK)
+	}
+}
+
+func TestGatewayForwardsAnIntrospectionBoundRPCWhileTheTokenIsActive(t *testing.T) {
+	t.Parallel()
+
+	fixture, idpServer := newIntrospectingGateway(t)
+
+	token := issueExternalToken(t, idpServer.URL, externalTokenRequest(greetScope, externalTenantID))
+
+	if _, err := greetWith(t, fixture, token); err != nil {
+		t.Fatalf("Greet() error = %v, want nil", err)
+	}
+
+	if got := len(fixture.headers); got != 1 {
+		t.Errorf("upstream calls = %d, want 1", got)
+	}
+
+	assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{
+		"method": authenticatedProcedure,
+		"result": "ok",
+	})
+}
+
+func TestGatewayStopsAnIntrospectionBoundRPCOnceTheTokenIsRevoked(t *testing.T) {
+	t.Parallel()
+
+	fixture, idpServer := newIntrospectingGateway(t)
+
+	token := issueExternalToken(t, idpServer.URL, externalTokenRequest(greetScope, externalTenantID))
+
+	revokeExternalToken(t, idpServer.URL, token)
+
+	_, err := greetWith(t, fixture, token)
+
+	if got, want := gatewayError(t, err).Code(), connectrpc.CodeUnauthenticated; got != want {
+		t.Errorf("code = %v, want %v", got, want)
+	}
+
+	if got := len(fixture.headers); got != 0 {
+		t.Errorf("upstream calls = %d, want 0", got)
+	}
+
+	assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{
+		"method":         authenticatedProcedure,
+		"result":         "unauthenticated",
+		"failure_reason": authn.ReasonTokenRevoked,
+	})
+}
+
+func TestGatewayStopsAnIntrospectionBoundRPCWhenTheIDPCannotBeAsked(t *testing.T) {
+	t.Parallel()
+
+	fixture, idpServer := newIntrospectingGateway(t)
+
+	warm := issueExternalToken(t, idpServer.URL, externalTokenRequest(greetScope, externalTenantID))
+	token := issueExternalToken(t, idpServer.URL, externalTokenRequest(greetScope, externalTenantID))
+
+	if _, err := greetWith(t, fixture, warm); err != nil {
+		t.Fatalf("Greet() error = %v, want nil", err)
+	}
+
+	idpServer.Close()
+
+	_, err := greetWith(t, fixture, token)
+
+	if got, want := gatewayError(t, err).Code(), connectrpc.CodeUnauthenticated; got != want {
+		t.Errorf("code = %v, want %v", got, want)
+	}
+
+	records := auditRecords(t, fixture.audit)
+	if len(records) != 2 {
+		t.Fatalf("audit records = %d, want 2", len(records))
+	}
+
+	assertAudit(t, records[1], map[string]any{
+		"method":         authenticatedProcedure,
+		"result":         "unauthenticated",
+		"failure_reason": authn.ReasonIntrospectionUnavailable,
+	})
 }
 
 func issueExternalToken(t *testing.T, issuer string, request map[string]any) string {
