@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -127,6 +128,12 @@ func newAuthenticator() *authn.Authenticator {
 		acceptedToken:  externalToken(greetScope),
 		scopelessToken: externalToken(""),
 	}})
+}
+
+type unavailableVerifier struct{}
+
+func (unavailableVerifier) Verify(context.Context, string) (authn.ExternalToken, error) {
+	return authn.ExternalToken{}, fmt.Errorf("%w: the verification keys cannot be fetched", authn.ErrVerifierUnavailable)
 }
 
 type stubIssuer struct {
@@ -936,4 +943,41 @@ func TestSourceIPFollowsTheTrustedProxyHops(t *testing.T) {
 			assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{"source_ip": test.want})
 		})
 	}
+}
+
+func TestPipelineAnswersAnUnavailableVerifierWithoutBlamingTheUpstream(t *testing.T) {
+	t.Parallel()
+
+	mounted := &counter{calls: 0}
+	fixture := newConfiguredFixture(
+		t,
+		map[string]http.Handler{greetMountPath: mounted},
+		0,
+		authn.NewAuthenticator(unavailableVerifier{}),
+		stubIssuer{issued: issuer.Issued{}, err: nil},
+	)
+
+	req := newConnectRequest(authenticatedProcedure)
+	req.Header.Set("Authorization", "Bearer external-token-a")
+
+	res := sendRequest(t, fixture.handler, req)
+
+	if got, want := res.status, http.StatusServiceUnavailable; got != want {
+		t.Errorf("status = %d, want %d", got, want)
+	}
+
+	if !strings.Contains(res.body, "authentication unavailable") || strings.Contains(res.body, "upstream") {
+		t.Errorf("body = %q, want the authentication unavailable message", res.body)
+	}
+
+	if mounted.calls != 0 {
+		t.Errorf("mounted handler calls = %d, want 0", mounted.calls)
+	}
+
+	assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{
+		"method":         authenticatedProcedure,
+		"result":         "unavailable",
+		"failure_reason": "verifier_unavailable",
+		"http_status":    float64(http.StatusServiceUnavailable),
+	})
 }

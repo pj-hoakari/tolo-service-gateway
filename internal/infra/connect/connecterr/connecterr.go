@@ -12,12 +12,13 @@ import (
 var errInternal = errors.New("internal error")
 
 var (
-	errUnauthenticated     = errors.New("unauthenticated")
-	errPermissionDenied    = errors.New("permission denied")
-	errUnimplemented       = errors.New("unimplemented")
-	errUpstreamUnavailable = errors.New("upstream unavailable")
-	errCanceled            = errors.New("canceled")
-	errDeadlineExceeded    = errors.New("deadline exceeded")
+	errUnauthenticated           = errors.New("unauthenticated")
+	errPermissionDenied          = errors.New("permission denied")
+	errUnimplemented             = errors.New("unimplemented")
+	errUpstreamUnavailable       = errors.New("upstream unavailable")
+	errAuthenticationUnavailable = errors.New("authentication unavailable")
+	errCanceled                  = errors.New("canceled")
+	errDeadlineExceeded          = errors.New("deadline exceeded")
 )
 
 func Unauthenticated() *connectrpc.Error {
@@ -34,6 +35,10 @@ func Unimplemented() *connectrpc.Error {
 
 func Unavailable() *connectrpc.Error {
 	return connectrpc.NewError(connectrpc.CodeUnavailable, errUpstreamUnavailable)
+}
+
+func AuthenticationUnavailable() *connectrpc.Error {
+	return connectrpc.NewError(connectrpc.CodeUnavailable, errAuthenticationUnavailable)
 }
 
 func Canceled() *connectrpc.Error {
