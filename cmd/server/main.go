@@ -11,13 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/httpapi"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/logging"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/telemetry"
 )
 
 const (
-	defaultAddr       = ":8080"
 	defaultLogLevel   = "info"
 	shutdownTimeout   = 10 * time.Second
 	readHeaderTimeout = 10 * time.Second
@@ -43,7 +43,17 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	addr := getenv("SERVER_ADDR", defaultAddr)
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	slog.Info("gateway configuration loaded",
+		"addr", cfg.ListenAddr,
+		"issuer", cfg.IssuerID,
+		"signing_key_file", cfg.SigningKeyFile,
+	)
+	slog.Warn("workload authentication is not implemented yet; do not deploy this build to a production-like environment")
 
 	shutdownTracing, err := telemetry.Setup(ctx)
 	if err != nil {
@@ -55,9 +65,11 @@ func run() error {
 		slog.Info("tracing enabled", "service", telemetry.ServiceName())
 	}
 
+	readiness := httpapi.NewReadiness()
+
 	httpServer := &http.Server{
-		Addr:              addr,
-		Handler:           httpapi.NewHandler(),
+		Addr:              cfg.ListenAddr,
+		Handler:           httpapi.NewHandler(readiness),
 		ReadHeaderTimeout: readHeaderTimeout,
 		// net/http reports its own failures (a broken connection, a panic in a
 		// handler) through this logger, so it goes to the same structured
@@ -68,7 +80,7 @@ func run() error {
 	serveErr := make(chan error, 1)
 
 	go func() {
-		slog.Info("server listening", "addr", addr)
+		slog.Info("server listening", "addr", cfg.ListenAddr)
 
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err

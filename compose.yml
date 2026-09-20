@@ -4,5 +4,7 @@ services:
             context: .
         environment:
             SERVER_ADDR: :8080
+            INTERNAL_JWT_ISSUER: service-gateway
+            INTERNAL_JWT_SIGNING_KEY_FILE: /etc/tolo/signing-key.pem
         ports:
             - "8080:8080"
