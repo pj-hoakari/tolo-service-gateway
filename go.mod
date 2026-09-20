@@ -16,7 +16,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/pj-hoakari/internal-jwt-handling v0.2.0
 	github.com/pj-hoakari/protoc-gen-authz-go v0.3.0
-	github.com/pj-hoakari/tolo-tenant-management v0.0.0
+	github.com/pj-hoakari/tolo-tenant-management v0.0.0-20260920063200-0250f0a643e9
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
@@ -45,5 +45,3 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/grpc v1.83.1 // indirect
 )
-
-replace github.com/pj-hoakari/tolo-tenant-management => /Users/mercury/orca/workspaces/tolo-tenant-management/declare-token-uses-and-split-write-scopes
