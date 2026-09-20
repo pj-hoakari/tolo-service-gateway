@@ -110,6 +110,86 @@ func (x *GreetResponse) GetGreeting() string {
 	return ""
 }
 
+type PingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PingRequest) Reset() {
+	*x = PingRequest{}
+	mi := &file_greet_v1_greet_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PingRequest) ProtoMessage() {}
+
+func (x *PingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_greet_v1_greet_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
+func (*PingRequest) Descriptor() ([]byte, []int) {
+	return file_greet_v1_greet_proto_rawDescGZIP(), []int{2}
+}
+
+type PingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PingResponse) Reset() {
+	*x = PingResponse{}
+	mi := &file_greet_v1_greet_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PingResponse) ProtoMessage() {}
+
+func (x *PingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_greet_v1_greet_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
+func (*PingResponse) Descriptor() ([]byte, []int) {
+	return file_greet_v1_greet_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *PingResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 var File_greet_v1_greet_proto protoreflect.FileDescriptor
 
 const file_greet_v1_greet_proto_rawDesc = "" +
@@ -118,9 +198,13 @@ const file_greet_v1_greet_proto_rawDesc = "" +
 	"\fGreetRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"+\n" +
 	"\rGreetResponse\x12\x1a\n" +
-	"\bgreeting\x18\x01 \x01(\tR\bgreeting2a\n" +
+	"\bgreeting\x18\x01 \x01(\tR\bgreeting\"\r\n" +
+	"\vPingRequest\"(\n" +
+	"\fPingResponse\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage2\xaf\x01\n" +
 	"\fGreetService\x12:\n" +
-	"\x05Greet\x12\x16.greet.v1.GreetRequest\x1a\x17.greet.v1.GreetResponse\"\x00\x1a\x15\x8a\xb5\x18\x11\b\x02\x12\rgreeting.readB\x9c\x01\n" +
+	"\x05Greet\x12\x16.greet.v1.GreetRequest\x1a\x17.greet.v1.GreetResponse\"\x00\x12=\n" +
+	"\x04Ping\x12\x15.greet.v1.PingRequest\x1a\x16.greet.v1.PingResponse\"\x06\x8a\xb5\x18\x02\b\x01\x1a$\x8a\xb5\x18 \b\x02\x12\rgreeting.read\x1a\rtenant_accessB\x9c\x01\n" +
 	"\fcom.greet.v1B\n" +
 	"GreetProtoP\x01Z?github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1;greetv1\xa2\x02\x03GXX\xaa\x02\bGreet.V1\xca\x02\bGreet\\V1\xe2\x02\x14Greet\\V1\\GPBMetadata\xea\x02\tGreet::V1b\x06proto3"
 
@@ -136,16 +220,20 @@ func file_greet_v1_greet_proto_rawDescGZIP() []byte {
 	return file_greet_v1_greet_proto_rawDescData
 }
 
-var file_greet_v1_greet_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_greet_v1_greet_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_greet_v1_greet_proto_goTypes = []any{
 	(*GreetRequest)(nil),  // 0: greet.v1.GreetRequest
 	(*GreetResponse)(nil), // 1: greet.v1.GreetResponse
+	(*PingRequest)(nil),   // 2: greet.v1.PingRequest
+	(*PingResponse)(nil),  // 3: greet.v1.PingResponse
 }
 var file_greet_v1_greet_proto_depIdxs = []int32{
 	0, // 0: greet.v1.GreetService.Greet:input_type -> greet.v1.GreetRequest
-	1, // 1: greet.v1.GreetService.Greet:output_type -> greet.v1.GreetResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	2, // 1: greet.v1.GreetService.Ping:input_type -> greet.v1.PingRequest
+	1, // 2: greet.v1.GreetService.Greet:output_type -> greet.v1.GreetResponse
+	3, // 3: greet.v1.GreetService.Ping:output_type -> greet.v1.PingResponse
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -162,7 +250,7 @@ func file_greet_v1_greet_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_greet_v1_greet_proto_rawDesc), len(file_greet_v1_greet_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

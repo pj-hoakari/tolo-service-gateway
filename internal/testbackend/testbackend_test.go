@@ -138,3 +138,19 @@ func TestGreetRejectsMissingName(t *testing.T) {
 		t.Fatalf("Greet() error code = %v, want %v", got, want)
 	}
 }
+
+func TestPingAcceptsCallWithoutToken(t *testing.T) {
+	t.Parallel()
+
+	_, keys := mintInternalJWT(t, internaljwt.TokenUseTenantAccess, "greeting.read", "a1b2c3d4e5f60718")
+	client := newTestClient(t, keys)
+
+	res, err := client.Ping(context.Background(), connectrpc.NewRequest(&greetv1.PingRequest{}))
+	if err != nil {
+		t.Fatalf("Ping() error = %v", err)
+	}
+
+	if got, want := res.Msg.GetMessage(), "pong"; got != want {
+		t.Errorf("Message = %q, want %q", got, want)
+	}
+}

@@ -8,5 +8,6 @@ import (
 
 // GreetServicePolicies is the effective policy of every procedure of greet.v1.GreetService.
 var GreetServicePolicies = authz.Policies{
-	GreetServiceGreetProcedure: {Level: authz.LevelAuthenticated, RequiredScopes: []string{"greeting.read"}},
+	GreetServiceGreetProcedure: {Level: authz.LevelAuthenticated, RequiredScopes: []string{"greeting.read"}, TokenUses: []string{"tenant_access"}},
+	GreetServicePingProcedure:  {Level: authz.LevelPublic},
 }

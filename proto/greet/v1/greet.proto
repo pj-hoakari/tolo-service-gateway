@@ -8,8 +8,12 @@ service GreetService {
   option (authz.v1.service_auth_policy) = {
     level: AUTH_LEVEL_AUTHENTICATED
     required_scopes: "greeting.read"
+    token_uses: "tenant_access"
   };
   rpc Greet(GreetRequest) returns (GreetResponse) {}
+  rpc Ping(PingRequest) returns (PingResponse) {
+    option (authz.v1.auth_policy) = {level: AUTH_LEVEL_PUBLIC};
+  }
 }
 
 message GreetRequest {
@@ -18,4 +22,10 @@ message GreetRequest {
 
 message GreetResponse {
   string greeting = 1;
+}
+
+message PingRequest {}
+
+message PingResponse {
+  string message = 1;
 }
