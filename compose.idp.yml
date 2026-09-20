@@ -3,13 +3,34 @@ services:
         environment:
             IDP_ISSUER: http://idp:8080
             IDP_AUDIENCE: backend-api
+            IDP_INTROSPECTION_CLIENT_ID: client-123
+            IDP_INTROSPECTION_CLIENT_SECRET_FILE: /etc/tolo/idp-seed/introspection-client-secret
         ports: !override
             - "18090:8080"
+        volumes:
+            - idp-seed-introspection:/etc/tolo/idp-seed:ro
         depends_on: !override
             keygen:
                 condition: service_completed_successfully
+            idp-seed-secret:
+                condition: service_completed_successfully
             idp:
                 condition: service_started
+
+    idp-seed-secret:
+        image: alpine/openssl:3.5.8@sha256:6aa2be0ed55a61fff35583e5763c2ea8288bcd3549d316b954b01eec32fb7006
+        entrypoint: ["/bin/sh", "-c"]
+        command:
+            - |
+              set -eu
+              printf '%s\n' "$${SEED_CLIENT_SECRET}" > /idp/introspection-client-secret
+              chown 65532:65532 /idp/introspection-client-secret
+              chmod 0400 /idp/introspection-client-secret
+        environment:
+            SEED_CLIENT_SECRET: ${TOLO_IDP_SEED_CLIENT_SECRET:-secret}
+        volumes:
+            - idp-seed-introspection:/idp
+        restart: "no"
 
     testbackend:
         ports: !override
@@ -32,6 +53,7 @@ services:
             TOLO_IDP_RATE_LIMIT_REDIS_URI: redis://idp-redis:6379
             TOLO_IDP_RELATION_BASE_URL: http://idp-relation-stub:8080
             TOLO_IDP_SEED_ENABLED: "true"
+            TOLO_IDP_SEED_CLIENT_SECRET: ${TOLO_IDP_SEED_CLIENT_SECRET:-secret}
             TOLO_IDP_JWK_ALLOW_EPHEMERAL: "true"
         ports:
             - "18080:8080"
@@ -74,3 +96,6 @@ services:
             timeout: 5s
             retries: 20
             start_period: 5s
+
+volumes:
+    idp-seed-introspection:

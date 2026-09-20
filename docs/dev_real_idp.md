@@ -9,7 +9,7 @@ tolo-idp 側には何も変更を加えず、`server` の `IDP_ISSUER` と relat
 docker compose -p toloidpcheck -f compose.yml -f compose.idp.yml up -d --build
 ```
 
-追加されるサービスは `idp`・`idp-db`（PostgreSQL 17）・`idp-redis`（Redis 7。IdP のレート制限に必須）・`idp-relation-stub`（所属の参照先）になる  
+追加されるサービスは `idp`・`idp-db`（PostgreSQL 17）・`idp-redis`（Redis 7。IdP のレート制限に必須）・`idp-relation-stub`（所属の参照先）・`idp-seed-secret`（失効照会用の secret を書き出す init サービス）になる  
 base の `fakeidp` は profile `fakeidp` へ退避されるため既定では起動せず、`server` の `depends_on` も `idp` に差し替わる
 
 公開ポートは base（8080〜8082）と重ならないようにずらしてある
@@ -53,6 +53,26 @@ TOLO_RELATION_DATA=/data/relation-nonhex.json docker compose -p toloidpcheck -f 
 relation-stub は 1 人のユーザーが所属できる tenant を 1 つに限るため、hex と非 hex を 1 つのファイルには入れられない  
 IdP は所属を Redis と DB にキャッシュするので、データを差し替えたら `idp` も作り直す
 
+### 失効照会の資格情報
+
+失効照会の対象である管理系書き込みの RPC では、Gateway が IdP の `introspection_endpoint` へ `client_secret_basic` で照会する  
+実物の IdP では seed の client（`client-123`）をそのまま照会用の client として使うため、`server` には `IDP_INTROSPECTION_CLIENT_ID: client-123` を渡す
+
+Gateway は secret をファイルで受け取るので、init サービス `idp-seed-secret` が `${TOLO_IDP_SEED_CLIENT_SECRET:-secret}` の値を名前付きボリューム `idp-seed-introspection` へ書き出し、`server` が `/etc/tolo/idp-seed` に読み込み専用でマウントする  
+同じ値を `idp` の `TOLO_IDP_SEED_CLIENT_SECRET` にも渡すので、IdP 側の seed secret と必ず一致する  
+secret はボリュームの中だけに存在し、リポジトリにもイメージにも入らない
+
+base の `keygen` が作る乱数 secret のボリューム `idp-introspection` は `fakeidp` 用で、こちらとは別になる（`server` には両方が別のパスでマウントされるが、実物の IdP を使うときに読むのは `/etc/tolo/idp-seed` の方だけになる）
+
+既定の secret を変えるときは、`server` と `idp` の両方に同じ値が渡るよう `TOLO_IDP_SEED_CLIENT_SECRET` を1か所で指定する
+
+```bash
+TOLO_IDP_SEED_CLIENT_SECRET=... docker compose -p toloidpcheck -f compose.yml -f compose.idp.yml up -d --build
+```
+
+この場合は `scripts/dev/idp-token.sh` と `scripts/dev/idp-revoke.sh` にも `IDP_CLIENT_SECRET` で同じ値を渡す  
+起動ログの `the IdP metadata is resolved` に `"introspection":true` が出ていれば有効になっている
+
 ## トークンの取得
 
 `scripts/dev/idp-token.sh` がログイン・authorize・token の 3 段階を curl で行い、アクセストークンだけを標準出力へ出す
@@ -71,6 +91,23 @@ TOKEN=$(./scripts/dev/idp-token.sh -s "openid tenant.read events.read")
 PKCE の verifier と challenge はスクリプト内で `openssl` を使って生成する  
 ユーザー・client・redirect_uri は tolo-idp の seed（`TOLO_IDP_SEED_ENABLED=true`）の値を既定にしていて、`IDP_USERNAME`・`IDP_PASSWORD`・`IDP_CLIENT_ID`・`IDP_CLIENT_SECRET`・`IDP_REDIRECT_URI` で変えられる
 
+## トークンの失効
+
+`scripts/dev/idp-revoke.sh` が IdP の `POST /oauth2/revoke` を叩く
+
+```bash
+./scripts/dev/idp-revoke.sh "$TOKEN"
+```
+
+IdP は本体を返さず `204` ではなく `200` と空の本文で応答する  
+失効後に `POST /oauth2/introspect` を叩くと `{"active":false}` だけが返る
+
+失効させたトークンでも、署名と期限が有効な間は**失効照会の対象でない RPC は通る**（`ListEvents` など）  
+対象の RPC でだけ照会が走り、`unauthenticated`（監査 `failure_reason=token_revoked`）になる
+
+照会の結果は jti 単位で 60 秒キャッシュされるので、**一度通った直後に失効させても最大 60 秒は通り続ける**  
+失効をすぐ確かめたいときは、Gateway を 1 度も呼んでいない新しいトークンを失効させてから呼ぶ
+
 ## 通る RPC と通らない RPC
 
 `tolo-tenant-management` のコンテナは compose に無いため、認証と認可を通った要求は `unavailable`（`upstream unavailable`）で終わる  
@@ -81,8 +118,11 @@ PKCE の verifier と challenge はスクリプト内で `openssl` を使って�
 | `TenantService/ListEvents` | `events.read` | `unavailable` | 宛先が居ないところまで到達する |
 | `RelationAdminService/ListMemberships` | `tenant.read` | `unavailable` | 同上 |
 | `TenantService/CreateEvent` | `events.manage` | `permission_denied`（`missing_scope`） | IdP は `events.manage` を発行できない |
-| `TenantService/ArchiveTenant` | `tenant.write` | `unauthenticated`（`introspection_unavailable`） | 失効照会が未実装 |
+| `TenantService/ArchiveTenant` | `tenant.write` | `unavailable` | 失効照会を通って宛先まで到達する |
+| `TenantService/ArchiveTenant`（失効済み） | `tenant.write` | `unauthenticated`（`token_revoked`） | IdP が `active: false` を返す |
 | `TenantService/GetEvent` | — | `permission_denied`（`internal_only`） | 内部オンリーの RPC |
+
+失効照会の資格情報を設定しないと、対象の 6 RPC は `unauthenticated`（`introspection_unavailable`）で拒否され続ける
 
 IdP が発行できる scope は `openid`・`tenant.read`・`tenant.write`・`events.read`・`events.write` だけで、登録表が要求する `events.manage`・`tenant.claim`・`greeting.read` は出せない  
 これらを必要とする RPC は実物の IdP では試せない
