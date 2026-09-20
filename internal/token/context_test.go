@@ -13,22 +13,18 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/internal/token"
 )
 
-func newContextVerifiers(t *testing.T, keys issuer.KeyProvider) *token.ContextVerifiers {
+func newContextVerifier(t *testing.T, keys issuer.KeyProvider) *verifier.ContextVerifier {
 	t.Helper()
 
-	verifiers, err := token.NewContextVerifiers(
-		contextIssuerID,
-		[]string{serviceA, serviceB},
-		token.NewLocalKeyResolver(keys),
-	)
+	contextVerifier, err := token.NewContextVerifier(contextIssuerID, keys)
 	if err != nil {
-		t.Fatalf("NewContextVerifiers() error = %v, want nil", err)
+		t.Fatalf("NewContextVerifier() error = %v, want nil", err)
 	}
 
-	return verifiers
+	return contextVerifier
 }
 
-func TestContextVerifiersVerifyAcceptsAContextTokenAddressedToThePresenter(t *testing.T) {
+func TestContextVerifierVerifyAcceptsAContextTokenAddressedToThePresenter(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
@@ -68,7 +64,7 @@ func TestContextVerifiersVerifyAcceptsAContextTokenAddressedToThePresenter(t *te
 			keys := signingProvider(localSigningKeyID, newKey(t))
 			issued := tt.issue(t, newIssuer(t, contextIssuerID, keys))
 
-			claims, err := newContextVerifiers(t, keys).Verify(t.Context(), serviceA, issued.Token)
+			claims, err := newContextVerifier(t, keys).Verify(t.Context(), issued.Token, serviceA)
 			if err != nil {
 				t.Fatalf("Verify() error = %v, want nil", err)
 			}
@@ -88,7 +84,7 @@ func TestContextVerifiersVerifyAcceptsAContextTokenAddressedToThePresenter(t *te
 	}
 }
 
-func TestContextVerifiersVerifyAcceptsAPublishedKey(t *testing.T) {
+func TestContextVerifierVerifyAcceptsAPublishedKey(t *testing.T) {
 	t.Parallel()
 
 	rotatedKey := newKey(t)
@@ -105,7 +101,7 @@ func TestContextVerifiersVerifyAcceptsAPublishedKey(t *testing.T) {
 		issuer.PublishedKey{KeyID: localRotatedKeyID, Key: &rotatedKey.PublicKey},
 	)
 
-	claims, err := newContextVerifiers(t, keys).Verify(t.Context(), serviceA, issued.Token)
+	claims, err := newContextVerifier(t, keys).Verify(t.Context(), issued.Token, serviceA)
 	if err != nil {
 		t.Fatalf("Verify() error = %v, want nil", err)
 	}
@@ -115,13 +111,13 @@ func TestContextVerifiersVerifyAcceptsAPublishedKey(t *testing.T) {
 	}
 }
 
-func TestContextVerifiersVerifyRejectsAnotherServicesContextToken(t *testing.T) {
+func TestContextVerifierVerifyRejectsAnotherServicesContextToken(t *testing.T) {
 	t.Parallel()
 
 	keys := signingProvider(localSigningKeyID, newKey(t))
 	issued := issueExternal(t, newIssuer(t, contextIssuerID, keys), serviceA, time.Now())
 
-	claims, err := newContextVerifiers(t, keys).Verify(t.Context(), serviceB, issued.Token)
+	claims, err := newContextVerifier(t, keys).Verify(t.Context(), issued.Token, serviceB)
 	if !errors.Is(err, verifier.ErrInvalidToken) {
 		t.Fatalf("Verify() error = %v, want %v", err, verifier.ErrInvalidToken)
 	}
@@ -135,19 +131,23 @@ func TestContextVerifiersVerifyRejectsAnotherServicesContextToken(t *testing.T) 
 	}
 }
 
-func TestContextVerifiersVerifyRejectsAnUnknownPresenter(t *testing.T) {
+func TestContextVerifierVerifyRejectsAnEmptyPresenter(t *testing.T) {
 	t.Parallel()
 
 	keys := signingProvider(localSigningKeyID, newKey(t))
 	issued := issueExternal(t, newIssuer(t, contextIssuerID, keys), serviceA, time.Now())
 
-	_, err := newContextVerifiers(t, keys).Verify(t.Context(), unknownService, issued.Token)
-	if !errors.Is(err, token.ErrUnknownService) {
-		t.Fatalf("Verify() error = %v, want %v", err, token.ErrUnknownService)
+	claims, err := newContextVerifier(t, keys).Verify(t.Context(), issued.Token, "")
+	if !errors.Is(err, verifier.ErrMissingAudience) {
+		t.Fatalf("Verify() error = %v, want %v", err, verifier.ErrMissingAudience)
+	}
+
+	if claims.ID != "" {
+		t.Errorf("Verify() claims = %+v, want the zero value", claims)
 	}
 }
 
-func TestContextVerifiersVerifyRejectsAnUnknownKeyID(t *testing.T) {
+func TestContextVerifierVerifyRejectsAnUnknownKeyID(t *testing.T) {
 	t.Parallel()
 
 	issued := issueExternal(
@@ -159,13 +159,13 @@ func TestContextVerifiersVerifyRejectsAnUnknownKeyID(t *testing.T) {
 
 	keys := signingProvider(localSigningKeyID, newKey(t))
 
-	_, err := newContextVerifiers(t, keys).Verify(t.Context(), serviceA, issued.Token)
-	if !errors.Is(err, verifier.ErrUnknownKey) {
-		t.Fatalf("Verify() error = %v, want %v", err, verifier.ErrUnknownKey)
+	_, err := newContextVerifier(t, keys).Verify(t.Context(), issued.Token, serviceA)
+	if !errors.Is(err, internaljwt.ErrUnknownKeyID) {
+		t.Fatalf("Verify() error = %v, want %v", err, internaljwt.ErrUnknownKeyID)
 	}
 }
 
-func TestContextVerifiersVerifyRejectsAnotherKeyUnderAKnownKeyID(t *testing.T) {
+func TestContextVerifierVerifyRejectsAnotherKeyUnderAKnownKeyID(t *testing.T) {
 	t.Parallel()
 
 	issued := issueExternal(
@@ -177,17 +177,47 @@ func TestContextVerifiersVerifyRejectsAnotherKeyUnderAKnownKeyID(t *testing.T) {
 
 	keys := signingProvider(localSigningKeyID, newKey(t))
 
-	_, err := newContextVerifiers(t, keys).Verify(t.Context(), serviceA, issued.Token)
+	_, err := newContextVerifier(t, keys).Verify(t.Context(), issued.Token, serviceA)
 	if !errors.Is(err, verifier.ErrInvalidToken) {
 		t.Fatalf("Verify() error = %v, want %v", err, verifier.ErrInvalidToken)
 	}
 
-	if errors.Is(err, verifier.ErrUnknownKey) {
+	if errors.Is(err, internaljwt.ErrUnknownKeyID) {
 		t.Errorf("Verify() error = %v, want a signature failure rather than an unknown key", err)
 	}
 }
 
-func TestContextVerifiersVerifyRejectsAnExpiredToken(t *testing.T) {
+func TestContextVerifierVerifyReportsAKeyProviderFailure(t *testing.T) {
+	t.Parallel()
+
+	issued := issueExternal(
+		t,
+		newIssuer(t, contextIssuerID, signingProvider(localSigningKeyID, newKey(t))),
+		serviceA,
+		time.Now(),
+	)
+
+	keys := staticKeyProvider{keySet: issuer.KeySet{}, err: errKeyProviderDown}
+
+	_, err := newContextVerifier(t, keys).Verify(t.Context(), issued.Token, serviceA)
+	if !errors.Is(err, verifier.ErrKeyResolution) {
+		t.Fatalf("Verify() error = %v, want %v", err, verifier.ErrKeyResolution)
+	}
+
+	if !errors.Is(err, errKeyProviderDown) {
+		t.Errorf("Verify() error = %v, want %v", err, errKeyProviderDown)
+	}
+
+	if errors.Is(err, verifier.ErrInvalidToken) {
+		t.Errorf("Verify() error = %v, want it to not be %v", err, verifier.ErrInvalidToken)
+	}
+
+	if errors.Is(err, internaljwt.ErrUnknownKeyID) {
+		t.Errorf("Verify() error = %v, want it to not be %v", err, internaljwt.ErrUnknownKeyID)
+	}
+}
+
+func TestContextVerifierVerifyRejectsAnExpiredToken(t *testing.T) {
 	t.Parallel()
 
 	keys := signingProvider(localSigningKeyID, newKey(t))
@@ -195,25 +225,25 @@ func TestContextVerifiersVerifyRejectsAnExpiredToken(t *testing.T) {
 	expiredIssuer := newIssuer(t, contextIssuerID, keys, issuer.WithClock(func() time.Time { return past }))
 	issued := issueExternal(t, expiredIssuer, serviceA, past)
 
-	_, err := newContextVerifiers(t, keys).Verify(t.Context(), serviceA, issued.Token)
+	_, err := newContextVerifier(t, keys).Verify(t.Context(), issued.Token, serviceA)
 	if !errors.Is(err, jwt.ErrTokenExpired) {
 		t.Fatalf("Verify() error = %v, want %v", err, jwt.ErrTokenExpired)
 	}
 }
 
-func TestContextVerifiersVerifyRejectsAnotherIssuer(t *testing.T) {
+func TestContextVerifierVerifyRejectsAnotherIssuer(t *testing.T) {
 	t.Parallel()
 
 	keys := signingProvider(localSigningKeyID, newKey(t))
 	issued := issueExternal(t, newIssuer(t, "another-gateway", keys), serviceA, time.Now())
 
-	_, err := newContextVerifiers(t, keys).Verify(t.Context(), serviceA, issued.Token)
+	_, err := newContextVerifier(t, keys).Verify(t.Context(), issued.Token, serviceA)
 	if !errors.Is(err, jwt.ErrTokenInvalidIssuer) {
 		t.Fatalf("Verify() error = %v, want %v", err, jwt.ErrTokenInvalidIssuer)
 	}
 }
 
-func TestContextVerifiersVerifyRejectsAnOriginClaimViolation(t *testing.T) {
+func TestContextVerifierVerifyRejectsAnOriginClaimViolation(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
@@ -276,7 +306,7 @@ func TestContextVerifiersVerifyRejectsAnOriginClaimViolation(t *testing.T) {
 			keys := signingProvider(localSigningKeyID, signingKey)
 			forged := forgeToken(t, localSigningKeyID, signingKey, tt.claims(time.Now()))
 
-			_, err := newContextVerifiers(t, keys).Verify(t.Context(), serviceA, forged)
+			_, err := newContextVerifier(t, keys).Verify(t.Context(), forged, serviceA)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Verify() error = %v, want %v", err, tt.wantErr)
 			}
@@ -284,63 +314,23 @@ func TestContextVerifiersVerifyRejectsAnOriginClaimViolation(t *testing.T) {
 	}
 }
 
-func TestNewContextVerifiers(t *testing.T) {
+func TestNewContextVerifierRejects(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
-		serviceIDs []string
+		issuerID string
+		keys     issuer.KeyProvider
+		wantErr  error
 	}{
-		"one service ID":   {serviceIDs: []string{serviceA}},
-		"two service IDs":  {serviceIDs: []string{serviceA, serviceB}},
-		"no service ID":    {serviceIDs: nil},
-		"an empty service": {serviceIDs: []string{}},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			keys := token.NewLocalKeyResolver(signingProvider(localSigningKeyID, newKey(t)))
-
-			verifiers, err := token.NewContextVerifiers(contextIssuerID, tt.serviceIDs, keys)
-			if err != nil {
-				t.Fatalf("NewContextVerifiers() error = %v, want nil", err)
-			}
-
-			if _, err := verifiers.Verify(t.Context(), unknownService, "token"); !errors.Is(err, token.ErrUnknownService) {
-				t.Errorf("Verify() error = %v, want %v", err, token.ErrUnknownService)
-			}
-		})
-	}
-}
-
-func TestNewContextVerifiersRejects(t *testing.T) {
-	t.Parallel()
-
-	tests := map[string]struct {
-		issuerID   string
-		serviceIDs []string
-		wantErr    error
-	}{
-		"an empty service ID": {
-			issuerID:   contextIssuerID,
-			serviceIDs: []string{serviceA, ""},
-			wantErr:    token.ErrEmptyServiceID,
-		},
-		"a duplicate service ID": {
-			issuerID:   contextIssuerID,
-			serviceIDs: []string{serviceA, serviceB, serviceA},
-			wantErr:    token.ErrDuplicateServiceID,
-		},
 		"an empty issuer ID": {
-			issuerID:   "",
-			serviceIDs: []string{serviceA},
-			wantErr:    verifier.ErrMissingIssuerID,
+			issuerID: "",
+			keys:     signingProvider(localSigningKeyID, newKey(t)),
+			wantErr:  verifier.ErrMissingIssuerID,
 		},
-		"an empty issuer ID without any service ID": {
-			issuerID:   "",
-			serviceIDs: nil,
-			wantErr:    verifier.ErrMissingIssuerID,
+		"a nil key provider": {
+			issuerID: contextIssuerID,
+			keys:     nil,
+			wantErr:  verifier.ErrMissingKeyResolver,
 		},
 	}
 
@@ -348,15 +338,13 @@ func TestNewContextVerifiersRejects(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			keys := token.NewLocalKeyResolver(signingProvider(localSigningKeyID, newKey(t)))
-
-			verifiers, err := token.NewContextVerifiers(tt.issuerID, tt.serviceIDs, keys)
+			contextVerifier, err := token.NewContextVerifier(tt.issuerID, tt.keys)
 			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("NewContextVerifiers() error = %v, want %v", err, tt.wantErr)
+				t.Fatalf("NewContextVerifier() error = %v, want %v", err, tt.wantErr)
 			}
 
-			if verifiers != nil {
-				t.Errorf("NewContextVerifiers() = %v, want nil", verifiers)
+			if contextVerifier != nil {
+				t.Errorf("NewContextVerifier() = %v, want nil", contextVerifier)
 			}
 		})
 	}

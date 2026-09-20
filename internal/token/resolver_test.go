@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
+	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
-	"github.com/pj-hoakari/internal-jwt-handling/verifier"
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/token"
 )
@@ -97,31 +97,37 @@ func TestLocalKeyResolverKeyRejects(t *testing.T) {
 		keys    issuer.KeyProvider
 		keyID   string
 		wantErr error
+		notErr  error
 	}{
 		"a key ID no key carries": {
 			keys:    withSigningKey,
 			keyID:   localForeignKeyID,
-			wantErr: verifier.ErrUnknownKey,
+			wantErr: internaljwt.ErrUnknownKeyID,
+			notErr:  nil,
 		},
 		"an empty key ID": {
 			keys:    withSigningKey,
 			keyID:   "",
-			wantErr: verifier.ErrUnknownKey,
+			wantErr: internaljwt.ErrUnknownKeyID,
+			notErr:  nil,
 		},
 		"the signing key ID while the key set holds no signing key": {
 			keys:    withoutSigningKey,
 			keyID:   localSigningKeyID,
-			wantErr: verifier.ErrUnknownKey,
+			wantErr: internaljwt.ErrUnknownKeyID,
+			notErr:  nil,
 		},
 		"a key provider that fails": {
 			keys:    staticKeyProvider{keySet: issuer.KeySet{}, err: errKeyProviderDown},
 			keyID:   localSigningKeyID,
 			wantErr: errKeyProviderDown,
+			notErr:  nil,
 		},
 		"a key provider that fails is told apart from an unknown key ID": {
 			keys:    staticKeyProvider{keySet: issuer.KeySet{}, err: errKeyProviderDown},
 			keyID:   localSigningKeyID,
-			wantErr: token.ErrLoadKeys,
+			wantErr: errKeyProviderDown,
+			notErr:  internaljwt.ErrUnknownKeyID,
 		},
 	}
 
@@ -132,6 +138,10 @@ func TestLocalKeyResolverKeyRejects(t *testing.T) {
 			got, err := token.NewLocalKeyResolver(tt.keys).Key(t.Context(), tt.keyID)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Key() error = %v, want %v", err, tt.wantErr)
+			}
+
+			if tt.notErr != nil && errors.Is(err, tt.notErr) {
+				t.Errorf("Key() error = %v, want it to not be %v", err, tt.notErr)
 			}
 
 			if got != nil {

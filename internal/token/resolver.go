@@ -3,14 +3,12 @@ package token
 import (
 	"context"
 	"crypto/ecdsa"
-	"errors"
 	"fmt"
 
+	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
 	"github.com/pj-hoakari/internal-jwt-handling/verifier"
 )
-
-var ErrLoadKeys = errors.New("load internal JWT keys")
 
 var _ verifier.KeyResolver = (*LocalKeyResolver)(nil)
 
@@ -25,7 +23,7 @@ func NewLocalKeyResolver(keys issuer.KeyProvider) *LocalKeyResolver {
 func (r *LocalKeyResolver) Key(ctx context.Context, keyID string) (*ecdsa.PublicKey, error) {
 	keySet, err := r.keys.Current(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrLoadKeys, err)
+		return nil, fmt.Errorf("load internal JWT keys: %w", err)
 	}
 
 	if keySet.Signing.Key != nil && keySet.Signing.KeyID == keyID {
@@ -38,5 +36,5 @@ func (r *LocalKeyResolver) Key(ctx context.Context, keyID string) (*ecdsa.Public
 		}
 	}
 
-	return nil, fmt.Errorf("%w: %q", verifier.ErrUnknownKey, keyID)
+	return nil, fmt.Errorf("%w: %q", internaljwt.ErrUnknownKeyID, keyID)
 }

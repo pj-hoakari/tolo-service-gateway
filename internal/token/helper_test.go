@@ -11,13 +11,13 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
+	"github.com/pj-hoakari/internal-jwt-handling/jwtgen"
 )
 
 const (
 	contextIssuerID = "service-gateway"
 	serviceA        = "tolo-tenant-management"
 	serviceB        = "tolo-event-management"
-	unknownService  = "tolo-unregistered"
 
 	localSigningKeyID = "local-key-2"
 	localRotatedKeyID = "local-key-1"
@@ -131,12 +131,14 @@ func issueMachineOriginService(t *testing.T, internalIssuer *issuer.Issuer, audi
 func forgeToken(t *testing.T, keyID string, key *ecdsa.PrivateKey, claims internaljwt.Claims) string {
 	t.Helper()
 
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	token.Header["kid"] = keyID
-
-	signed, err := token.SignedString(key)
+	generator, err := jwtgen.NewGeneratorWithKey(keyID, key)
 	if err != nil {
-		t.Fatalf("SignedString() error = %v, want nil", err)
+		t.Fatalf("NewGeneratorWithKey() error = %v, want nil", err)
+	}
+
+	signed, err := generator.SignUnchecked(claims)
+	if err != nil {
+		t.Fatalf("SignUnchecked() error = %v, want nil", err)
 	}
 
 	return signed

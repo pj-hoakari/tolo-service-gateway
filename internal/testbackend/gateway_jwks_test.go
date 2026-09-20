@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -38,6 +39,7 @@ const (
 	greetClientID      = "admin-ui"
 	greetSourceJTI     = "external-jti-1"
 	greetSourceTimeout = 15 * time.Minute
+	jwksFetchTimeout   = 2 * time.Second
 )
 
 type gatewayKeyProvider struct {
@@ -48,7 +50,7 @@ func (p gatewayKeyProvider) Current(context.Context) (issuer.KeySet, error) {
 	return p.keys, nil
 }
 
-func newGateway(t *testing.T) (*issuer.Issuer, string) {
+func newGatewayIssuer(t *testing.T) *issuer.Issuer {
 	t.Helper()
 
 	signing, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -66,12 +68,26 @@ func newGateway(t *testing.T) (*issuer.Issuer, string) {
 		t.Fatalf("issuer.New() error = %v, want nil", err)
 	}
 
+	return gatewayIssuer
+}
+
+func newGatewayServer(t *testing.T, gatewayIssuer *issuer.Issuer) *httptest.Server {
+	t.Helper()
+
 	gateway := httptest.NewServer(httpapi.NewHandler(
 		httpapi.PublicRoutes(httpapi.NewJWKSHandler(gatewayIssuer)),
 	))
 	t.Cleanup(gateway.Close)
 
-	return gatewayIssuer, gateway.URL + httpapi.JWKSPath
+	return gateway
+}
+
+func newGateway(t *testing.T) (*issuer.Issuer, string) {
+	t.Helper()
+
+	gatewayIssuer := newGatewayIssuer(t)
+
+	return gatewayIssuer, newGatewayServer(t, gatewayIssuer).URL + httpapi.JWKSPath
 }
 
 func newBackendClient(t *testing.T, jwksURL string) greetv1connect.GreetServiceClient {
@@ -83,8 +99,8 @@ func newBackendClient(t *testing.T, jwksURL string) greetv1connect.GreetServiceC
 		CacheTTL:        0,
 		RefreshCooldown: 0,
 		FailureCooldown: 0,
-		FetchTimeout:    0,
-		RetryBackoff:    nil,
+		FetchTimeout:    jwksFetchTimeout,
+		RetryBackoff:    []time.Duration{},
 		MaxDocumentSize: 0,
 	})
 	if err != nil {
@@ -217,6 +233,55 @@ func TestBackendVerifiesGatewayTokensThroughItsJWKS(t *testing.T) {
 
 			if got := res.Msg.GetGreeting(); got != tt.wantGreeting {
 				t.Errorf("Greeting = %q, want %q", got, tt.wantGreeting)
+			}
+		})
+	}
+}
+
+func TestBackendReportsUnavailableWhenTheGatewayJWKSCannotBeFetched(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		jwksURL func(t *testing.T, gatewayIssuer *issuer.Issuer) string
+	}{
+		"the gateway is stopped": {
+			jwksURL: func(t *testing.T, gatewayIssuer *issuer.Issuer) string {
+				t.Helper()
+
+				gateway := newGatewayServer(t, gatewayIssuer)
+				jwksURL := gateway.URL + httpapi.JWKSPath
+				gateway.Close()
+
+				return jwksURL
+			},
+		},
+		"the gateway JWKS fails": {
+			jwksURL: func(t *testing.T, _ *issuer.Issuer) string {
+				t.Helper()
+
+				gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusInternalServerError)
+				}))
+				t.Cleanup(gateway.Close)
+
+				return gateway.URL + httpapi.JWKSPath
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			gatewayIssuer := newGatewayIssuer(t)
+			client := newBackendClient(t, tt.jwksURL(t, gatewayIssuer))
+
+			req := connectrpc.NewRequest(&greetv1.GreetRequest{Name: "Ada"})
+			req.Header().Set("Authorization", "Bearer "+issueGatewayToken(t, gatewayIssuer, backendAudience))
+
+			_, err := client.Greet(t.Context(), req)
+			if got, want := connectrpc.CodeOf(err), connectrpc.CodeUnavailable; got != want {
+				t.Fatalf("Greet() error code = %v, want %v (error = %v)", got, want, err)
 			}
 		})
 	}
