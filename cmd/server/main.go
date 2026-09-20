@@ -16,9 +16,10 @@ import (
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
-	"github.com/pj-hoakari/tolo-service-gateway/internal/forward"
-	"github.com/pj-hoakari/tolo-service-gateway/internal/forwardgen"
-	"github.com/pj-hoakari/tolo-service-gateway/internal/httpapi"
+	infraconnect "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forwardgen"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/logging"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/telemetry"
@@ -103,8 +104,7 @@ func run() error {
 		httpapi.HealthRoutes(readiness),
 		httpapi.PublicRoutes(httpapi.NewJWKSHandler(internalIssuer)),
 		httpapi.WorkloadRoutes(),
-		httpapi.RPCRoutes(rpcRegistry, rpcHandlers),
-		httpapi.FallbackRoutes(),
+		infraconnect.Routes(rpcRegistry, rpcHandlers),
 	)
 
 	httpServer := &http.Server{

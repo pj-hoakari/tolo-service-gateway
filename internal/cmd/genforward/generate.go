@@ -14,8 +14,8 @@ import (
 
 const (
 	forwardgenPackage    = protogen.GoPackageName("forwardgen")
-	forwardgenImportPath = protogen.GoImportPath("github.com/pj-hoakari/tolo-service-gateway/internal/forwardgen")
-	forwardImportPath    = protogen.GoImportPath("github.com/pj-hoakari/tolo-service-gateway/internal/forward")
+	forwardgenImportPath = protogen.GoImportPath("github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forwardgen")
+	forwardImportPath    = protogen.GoImportPath("github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward")
 	connectImportPath    = protogen.GoImportPath("connectrpc.com/connect")
 	contextImportPath    = protogen.GoImportPath("context")
 	httpImportPath       = protogen.GoImportPath("net/http")

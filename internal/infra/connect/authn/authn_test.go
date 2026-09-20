@@ -9,8 +9,8 @@ import (
 
 	"google.golang.org/protobuf/reflect/protoregistry"
 
-	"github.com/pj-hoakari/tolo-service-gateway/internal/authn"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/authn"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
 )
 

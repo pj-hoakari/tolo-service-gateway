@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pj-hoakari/tolo-service-gateway/internal/httpapi"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
 )
 
 func TestHealthz(t *testing.T) {

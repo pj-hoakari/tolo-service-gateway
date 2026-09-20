@@ -1,4 +1,4 @@
-package forwardgen_test
+package connect_test
 
 import (
 	"context"
@@ -16,9 +16,10 @@ import (
 	greetv1 "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1"
 	"github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
-	"github.com/pj-hoakari/tolo-service-gateway/internal/forward"
-	"github.com/pj-hoakari/tolo-service-gateway/internal/forwardgen"
-	"github.com/pj-hoakari/tolo-service-gateway/internal/httpapi"
+	infraconnect "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forwardgen"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
 )
 
@@ -87,10 +88,7 @@ func newGateway(t *testing.T) gatewayFixture {
 		t.Fatalf("Handlers() error = %v, want nil", err)
 	}
 
-	gateway := httptest.NewServer(httpapi.NewHandler(
-		httpapi.RPCRoutes(built, handlers),
-		httpapi.FallbackRoutes(),
-	))
+	gateway := httptest.NewServer(httpapi.NewHandler(infraconnect.Routes(built, handlers)))
 	t.Cleanup(gateway.Close)
 
 	return gatewayFixture{

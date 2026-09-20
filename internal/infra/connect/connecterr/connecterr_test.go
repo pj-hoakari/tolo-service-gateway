@@ -12,7 +12,7 @@ import (
 	connectrpc "connectrpc.com/connect"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/pj-hoakari/tolo-service-gateway/internal/connecterr"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/connecterr"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/logging"
 )
 

@@ -20,7 +20,7 @@ import (
 
 	greetv1 "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1"
 	"github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
-	"github.com/pj-hoakari/tolo-service-gateway/internal/httpapi"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/testbackend"
 )
 

@@ -23,7 +23,7 @@ import (
 	"github.com/pj-hoakari/internal-jwt-handling/jwks"
 	"github.com/pj-hoakari/internal-jwt-handling/verifier"
 
-	"github.com/pj-hoakari/tolo-service-gateway/internal/httpapi"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
 )
 
 const (

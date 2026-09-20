@@ -9,7 +9,7 @@ import (
 
 	connectrpc "connectrpc.com/connect"
 
-	"github.com/pj-hoakari/tolo-service-gateway/internal/connecterr"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/connecterr"
 )
 
 const defaultUpstreamTimeout = 30 * time.Second

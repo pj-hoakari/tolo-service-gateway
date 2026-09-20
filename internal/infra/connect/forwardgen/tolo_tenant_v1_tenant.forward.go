@@ -5,7 +5,7 @@ package forwardgen
 import (
 	connect "connectrpc.com/connect"
 	context "context"
-	forward "github.com/pj-hoakari/tolo-service-gateway/internal/forward"
+	forward "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	v1 "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1"
 	tenantv1connect "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1/tenantv1connect"
 )
