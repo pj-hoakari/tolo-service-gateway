@@ -26,7 +26,7 @@ linters:
                 - fmt.Println
         forbidigo:
             forbid:
-                # Internal errors must go through connect.InternalError so the
+                # Internal errors must go through connecterr.InternalError so the
                 # cause is logged server-side and never reaches the client.
                 - pattern: '^connectrpc\.CodeInternal$'
                   msg: "build internal errors with InternalError(ctx, err) instead of connectrpc.CodeInternal"

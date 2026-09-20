@@ -1,4 +1,4 @@
-package connect
+package connecterr
 
 import (
 	"context"
@@ -6,11 +6,6 @@ import (
 	"log/slog"
 
 	connectrpc "connectrpc.com/connect"
-
-	greetv1 "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1"
-	"github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
-	"github.com/pj-hoakari/tolo-service-gateway/internal/application"
-	"github.com/pj-hoakari/tolo-service-gateway/internal/domain"
 )
 
 // errInternal is the only detail a client learns about an internal failure.
@@ -39,34 +34,4 @@ func InternalError(ctx context.Context, err error) *connectrpc.Error {
 	slog.ErrorContext(ctx, "internal error", "error", err)
 
 	return connectrpc.NewError(connectrpc.CodeInternal, errInternal) //nolint:forbidigo // the one place that builds internal errors
-}
-
-// Service is the Connect transport implementation of GreetService.
-type Service struct {
-	greetv1connect.UnimplementedGreetServiceHandler
-	greetService application.GreetUseCases
-}
-
-func NewService(greetService application.GreetUseCases) *Service {
-	return &Service{
-		UnimplementedGreetServiceHandler: greetv1connect.UnimplementedGreetServiceHandler{},
-		greetService:                     greetService,
-	}
-}
-
-func (s *Service) Greet(ctx context.Context, req *connectrpc.Request[greetv1.GreetRequest]) (*connectrpc.Response[greetv1.GreetResponse], error) {
-	greeting, err := s.greetService.Greet(ctx, application.GreetInput{
-		Name: req.Msg.GetName(),
-	})
-	if err != nil {
-		if errors.Is(err, domain.ErrGreetingNameRequired) {
-			return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument, err)
-		}
-
-		return nil, InternalError(ctx, err)
-	}
-
-	return connectrpc.NewResponse(&greetv1.GreetResponse{
-		Greeting: greeting.Message(),
-	}), nil
 }
