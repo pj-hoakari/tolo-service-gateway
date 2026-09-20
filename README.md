@@ -32,7 +32,7 @@ task up:build
 鍵を作り直すには `docker compose down -v` でボリュームごと削除してから起動し直す
 
 サーバーは `http://localhost:8080` で待ち受ける（停止は `task down`）  
-現段階の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）と公開 JWKS だけで、業務 RPC はまだ受け付けない  
+現段階の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）・公開 JWKS と、匿名で呼べる業務 RPC になる  
 `/healthz` はプロセスが応答できる限り 200 を返す  
 `/readyz` は登録された準備チェックがすべて成功したときだけ 200 を返し、1 つでも失敗すれば 503 を返す（失敗の内容は応答本文には出さず、サーバー側のログにだけ記録する）  
 `/.well-known/jwks.json` は内部 JWT の署名検証用公開鍵を JWKS として返す  
@@ -40,23 +40,34 @@ task up:build
 返すのは署名鍵と `INTERNAL_JWT_PUBLISHED_KEY_FILES` の公開鍵で、秘密鍵成分（`d`）は含まない  
 応答には `Cache-Control: public, max-age=300` と本文から導いた ETag が付き、同じ ETag を `If-None-Match` で送れば 304 を返す
 
-`server` は起動時に RPC 登録表（公開 proto の認可ポリシーと宛先の束縛）を導出し、宛先設定と突き合わせるが、転送はまだ行わない  
-そのため現段階では、未知の RPC も登録済みの RPC も `unimplemented` を返す  
-Connect・gRPC・gRPC-Web のいずれかとして解釈できる POST には、その形式に合わせたエラーを返し、それ以外の要求（GET を含む）には 404 を返す
+`server` は起動時に RPC 登録表（公開 proto の認可ポリシーと宛先の束縛）を導出し、宛先設定と突き合わせ、登録済み service ごとに型付き委譲のハンドラーを立てる  
+現段階で実際に転送するのは、資格情報を伴わない匿名 RPC だけになる  
+`Authorization`・`DPoP`・`workload-authorization`・`X-Serverless-Authorization` のいずれかが付いた要求は、匿名で呼べる RPC であっても `unauthenticated` を返す（外部トークン検証とワークロード認証が未実装のため、匿名へフォールバックしない）  
+認証必須の RPC とサービス専用の RPC も、資格情報なしでは `unauthenticated` を返す  
+登録表に無い RPC は `unimplemented` を返す  
+Connect・gRPC・gRPC-Web のいずれかとして解釈できる POST には、その形式に合わせたエラーを返し、それ以外の要求（GET を含む）には 404 を返す  
+後段へは受信ヘッダを 1 つも渡さず、後段の応答ヘッダとトレーラーも外へ返さない  
+受信した deadline と cancel は後段へ伝え、残存時間は増やさない（deadline が無いときだけ 30 秒の既定値を使う）  
+後段へ到達できない場合は `unavailable` を返し、宛先のホスト名などの詳細は応答に出さずサーバー側のログにだけ記録する
 
 `testbackend`（`http://localhost:8081`）は `server` の JWKS を取得して内部 JWT を検証するテスト用の後段サービスで、`jwtgen` で作った JWKS を配る手順の代わりになる  
 `greet.v1.GreetService/Greet` は内部 JWT を要求するが、`greet.v1.GreetService/Ping` は匿名で呼べる  
-現段階の `server` にはまだ業務 RPC の入口が無く、内部 JWT を発行させる経路が無いため、手元で確認できるのはトークンなしの呼び出しが `unauthenticated` になることまでになる
+`Ping` は Gateway 経由で通り、`Greet` は内部 JWT の発行経路がまだ無いため Gateway で `unauthenticated` になる  
+Tenant Management は compose にコンテナが無いため、匿名で呼べる `StartTenantRegistration` も宛先不達の `unavailable` になる
 
 ```bash
 curl http://localhost:8080/.well-known/jwks.json
 
-curl -X POST -H 'Content-Type: application/json' -d '{"name":"tolo"}' http://localhost:8081/greet.v1.GreetService/Greet
+curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8080/greet.v1.GreetService/Ping
 
-curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8081/greet.v1.GreetService/Ping
+curl -X POST -H 'Content-Type: application/json' -H 'Authorization: Bearer x' -d '{}' http://localhost:8080/greet.v1.GreetService/Ping
+
+curl -X POST -H 'Content-Type: application/json' -d '{"name":"tolo"}' http://localhost:8080/greet.v1.GreetService/Greet
+
+curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8080/tolo.tenant.v1.TenantService/StartTenantRegistration
 ```
 
-上から順に、kid `dev-key-1` を含む JWKS、`{"code":"unauthenticated"}`、`{"message":"pong"}` を返す
+上から順に、kid `dev-key-1` を含む JWKS、`{"message":"pong"}`、`{"code":"unauthenticated"}`、`{"code":"unauthenticated"}`、`{"code":"unavailable"}` を返す
 
 #### 環境変数
 
@@ -93,7 +104,7 @@ RPC 登録表が参照する宛先が設定に無い場合も、設定にある�
 compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destinations.json` へ読み込み専用でマウントしている
 
 登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService` が入っており、後者2つの宛先は `tolo-tenant-management` になる  
-ただし compose にはまだ Tenant Management のコンテナが無いため、宛先は宣言だけで接続はしない
+ただし compose にはまだ Tenant Management のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる
 
 #### 配備についての注意
 

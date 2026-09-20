@@ -10,13 +10,19 @@ import (
 
 var errUnimplementedProcedure = errors.New("unimplemented")
 
-func FallbackRoutes() Routes {
+func FallbackHandler() http.Handler {
 	errorWriter := connectrpc.NewErrorWriter()
 
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleFallback(w, r, errorWriter)
+	})
+}
+
+func FallbackRoutes() Routes {
+	handler := FallbackHandler()
+
 	return func(mux *http.ServeMux) {
-		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			handleFallback(w, r, errorWriter)
-		})
+		mux.Handle("/", handler)
 	}
 }
 
