@@ -20,6 +20,7 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/idp"
 	infraconnect "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/authn"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
@@ -37,7 +38,10 @@ const (
 	readHeaderTimeout = 10 * time.Second
 )
 
-const signingKeyReadinessCheck = "internal-jwt-signing-key"
+const (
+	signingKeyReadinessCheck = "internal-jwt-signing-key"
+	idpReadinessCheck        = "idp-discovery"
+)
 
 var (
 	errSigningKeyNotLoaded = errors.New("the internal JWT signing key is not loaded")
@@ -105,6 +109,35 @@ func run() error {
 	readiness := httpapi.NewReadiness()
 	readiness.Register(signingKeyReadinessCheck, signingKeyCheck(signingKeys))
 
+	authenticator := authn.NewAuthenticator(nil)
+	idpErr := make(chan error, 1)
+
+	if cfg.IDPIssuer == "" {
+		slog.Warn("external token verification is disabled because IDP_ISSUER is not set; every request that carries credentials is rejected as unauthenticated")
+	} else {
+		provider, err := idp.New(idp.Config{
+			Issuer:     cfg.IDPIssuer,
+			Audience:   cfg.IDPAudience,
+			Algorithms: cfg.IDPAlgorithms,
+			HTTPClient: idp.NewHTTPClient(),
+			RetryDelay: 0,
+			Clock:      nil,
+		})
+		if err != nil {
+			return fmt.Errorf("build the external token verifier: %w", err)
+		}
+
+		authenticator = authn.NewAuthenticator(provider)
+
+		readiness.Register(idpReadinessCheck, provider.Ready)
+
+		go func() {
+			if err := provider.Run(ctx); err != nil {
+				idpErr <- err
+			}
+		}()
+	}
+
 	handler := httpapi.NewHandler(
 		httpapi.HealthRoutes(readiness),
 		httpapi.PublicRoutes(httpapi.NewJWKSHandler(internalIssuer)),
@@ -113,7 +146,7 @@ func run() error {
 			Registry:         rpcRegistry,
 			Handlers:         rpcHandlers,
 			Audit:            newAuditEmitter(),
-			Authenticator:    authn.NewAuthenticator(nil),
+			Authenticator:    authenticator,
 			Issuer:           internalIssuer,
 			TracerProvider:   otel.GetTracerProvider(),
 			TrustedProxyHops: cfg.TrustedProxyHops,
@@ -147,6 +180,8 @@ func run() error {
 	select {
 	case err := <-serveErr:
 		return err
+	case err := <-idpErr:
+		return fmt.Errorf("resolve the IdP metadata: %w", err)
 	case <-ctx.Done():
 		slog.Info("server shutting down")
 
@@ -243,7 +278,11 @@ func configLogAttrs(cfg config.Config) []any {
 	}
 
 	if cfg.IDPIssuer != "" {
-		attrs = append(attrs, "idp_issuer", cfg.IDPIssuer)
+		attrs = append(attrs,
+			"idp_issuer", cfg.IDPIssuer,
+			"idp_audience", cfg.IDPAudience,
+			"idp_algorithms", cfg.IDPAlgorithms,
+		)
 	}
 
 	return attrs

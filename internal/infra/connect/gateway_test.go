@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -28,7 +29,10 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/fakeidp"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/idp"
 	infraconnect "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/authn"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forwardgen"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
@@ -41,6 +45,7 @@ const (
 	gatewayIssuerID     = "service-gateway"
 	gatewaySigningKeyID = "dev-key-1"
 	backendAudience     = "tolo-testbackend"
+	externalAudience    = "backend-api"
 )
 
 type upstreamCall struct {
@@ -426,6 +431,12 @@ func newVerifyingBackend(t *testing.T, gatewayIssuer *issuer.Issuer) (string, ch
 func newVerifyingGateway(t *testing.T) verifyingFixture {
 	t.Helper()
 
+	return newVerifyingGatewayWith(t, newAuthenticator())
+}
+
+func newVerifyingGatewayWith(t *testing.T, authenticator *authn.Authenticator) verifyingFixture {
+	t.Helper()
+
 	gatewayIssuer := newGatewayIssuer(t)
 	backendURL, headers := newVerifyingBackend(t, gatewayIssuer)
 
@@ -451,7 +462,7 @@ func newVerifyingGateway(t *testing.T) verifyingFixture {
 			AddSource: false,
 			ProjectID: "",
 		})),
-		Authenticator:    newAuthenticator(),
+		Authenticator:    authenticator,
 		Issuer:           gatewayIssuer,
 		TracerProvider:   sdktrace.NewTracerProvider(),
 		TrustedProxyHops: 0,
@@ -533,6 +544,160 @@ func TestGatewayStopsAnExternalTokenWithoutTheRequiredScope(t *testing.T) {
 		"result":         "permission_denied",
 		"failure_reason": "missing_scope",
 	})
+}
+
+func startFakeIDP(t *testing.T) string {
+	t.Helper()
+
+	server := httptest.NewUnstartedServer(nil)
+	t.Cleanup(server.Close)
+
+	handler, err := fakeidp.NewHandler(fakeidp.Config{
+		Issuer:   "http://" + server.Listener.Addr().String(),
+		Audience: externalAudience,
+	})
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v, want nil", err)
+	}
+
+	server.Config.Handler = handler
+	server.Start()
+
+	return server.URL
+}
+
+func newIDPGateway(t *testing.T) (verifyingFixture, string) {
+	t.Helper()
+
+	issuer := startFakeIDP(t)
+
+	provider, err := idp.New(idp.Config{
+		Issuer:     issuer,
+		Audience:   externalAudience,
+		Algorithms: []string{"RS256"},
+	})
+	if err != nil {
+		t.Fatalf("idp.New() error = %v, want nil", err)
+	}
+
+	if err := provider.Run(t.Context()); err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+
+	return newVerifyingGatewayWith(t, authn.NewAuthenticator(provider)), issuer
+}
+
+func issueExternalToken(t *testing.T, issuer string, request map[string]any) string {
+	t.Helper()
+
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v, want nil", err)
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, issuer+fakeidp.TokenPath, bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v, want nil", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v, want nil", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("POST %s status = %d, want %d", fakeidp.TokenPath, res.StatusCode, http.StatusOK)
+	}
+
+	var body struct {
+		AccessToken string `json:"access_token"`
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("Decode() error = %v, want nil", err)
+	}
+
+	return body.AccessToken
+}
+
+func externalTokenRequest(scope, tenantID string) map[string]any {
+	return map[string]any{
+		"token_use":   "tenant_access",
+		"sub":         externalSubject,
+		"client_id":   externalClientID,
+		"scope":       scope,
+		"tenant_id":   tenantID,
+		"ttl_seconds": 300,
+	}
+}
+
+func TestGatewayForwardsACallAuthenticatedByTheIDP(t *testing.T) {
+	t.Parallel()
+
+	fixture, issuer := newIDPGateway(t)
+
+	token := issueExternalToken(t, issuer, externalTokenRequest(greetScope, externalTenantID))
+
+	res, err := greetWith(t, fixture, token)
+	if err != nil {
+		t.Fatalf("Greet() error = %v, want nil", err)
+	}
+
+	if got, want := res.Msg.GetGreeting(), "Hello, tolo!"; got != want {
+		t.Errorf("greeting = %q, want %q", got, want)
+	}
+
+	authorization := <-fixture.headers
+
+	if !strings.HasPrefix(authorization, "Bearer ") || strings.Contains(authorization, token) {
+		t.Errorf("upstream Authorization = %q, want the internal JWT instead of the external token", authorization)
+	}
+
+	assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{
+		"method":    authenticatedProcedure,
+		"result":    "ok",
+		"client_id": externalClientID,
+		"sub":       externalSubject,
+	})
+}
+
+func TestGatewayStopsTokensTheIDPIssuedOutsideTheSpecifiedShape(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		request map[string]any
+		want    connectrpc.Code
+	}{
+		"a token without the required scope": {
+			request: externalTokenRequest("other.read", externalTenantID),
+			want:    connectrpc.CodePermissionDenied,
+		},
+		"a tenant ID that is not a public ID": {
+			request: externalTokenRequest(greetScope, "tenant-a"),
+			want:    connectrpc.CodeUnauthenticated,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			fixture, issuer := newIDPGateway(t)
+
+			_, err := greetWith(t, fixture, issueExternalToken(t, issuer, test.request))
+
+			if got := gatewayError(t, err).Code(); got != test.want {
+				t.Errorf("code = %v, want %v", got, test.want)
+			}
+
+			if got := len(fixture.headers); got != 0 {
+				t.Errorf("upstream calls = %d, want 0", got)
+			}
+		})
+	}
 }
 
 func traceIDOf(t *testing.T, traceparent string) string {

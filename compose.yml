@@ -24,6 +24,8 @@ services:
             INTERNAL_JWT_SIGNING_KEY_FILE: /etc/tolo/keys/signing-key.pem
             INTERNAL_JWT_SIGNING_KEY_ID: dev-key-1
             TOLO_GATEWAY_DESTINATIONS_FILE: /etc/tolo/gateway/destinations.json
+            IDP_ISSUER: http://fakeidp:8080
+            IDP_AUDIENCE: backend-api
         ports:
             - "8080:8080"
         volumes:
@@ -32,6 +34,19 @@ services:
         depends_on:
             keygen:
                 condition: service_completed_successfully
+            fakeidp:
+                condition: service_started
+
+    fakeidp:
+        build:
+            context: .
+            target: fakeidp
+        environment:
+            SERVER_ADDR: :8080
+            FAKE_IDP_ISSUER: http://fakeidp:8080
+            FAKE_IDP_AUDIENCE: backend-api
+        ports:
+            - "8082:8080"
 
     testbackend:
         build:
