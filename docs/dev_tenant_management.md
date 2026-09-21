@@ -82,6 +82,9 @@ curl -sS -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$TOKEN" '{tok
 ./scripts/dev/tenant-management-onboarding.sh
 ```
 
+この通しは GitHub Actions の `E2E`（`.github/workflows/e2e.yml`）でも走り、PR と main への push のたびに同じ compose を起動して確かめる  
+手元で失敗するときは CI でも失敗するため、直してから push する
+
 手で追うときの最小の流れは次になる
 
 ```bash

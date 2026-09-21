@@ -1,0 +1,80 @@
+name: E2E
+
+on:
+    pull_request:
+    push:
+        branches: [main]
+
+permissions:
+    contents: read
+
+env:
+    COMPOSE_FILE: compose.yml:compose.tm.yml
+
+jobs:
+    e2e:
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+
+            - name: Detect changes
+              id: changes
+              uses: ./.github/actions/detect-changes
+              with:
+                  paths: |
+                      **/*.go
+                      go.mod
+                      go.sum
+                      Dockerfile
+                      compose.yml
+                      compose.tm.yml
+                      config/compose/**
+                      scripts/dev/**
+                      .github/workflows/e2e.yml
+
+            - name: Start services
+              id: up
+              if: steps.changes.outputs.changed == 'true'
+              run: docker compose up -d --build
+
+            - name: Wait for the gateway and the upstream
+              if: steps.changes.outputs.changed == 'true'
+              run: |
+                  set -euo pipefail
+                  probe_payload='{"name":"ci-readiness","contractPlan":"standard"}'
+                  for i in $(seq 1 60); do
+                    ready="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/readyz || true)"
+                    probe="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "$probe_payload" http://localhost:8080/tolo.tenant.v1.TenantService/StartTenantRegistration || true)"
+                    if [ "${ready}" = "200" ] && [ "${probe}" = "200" ]; then
+                      echo "ready after ${i} attempts"
+                      exit 0
+                    fi
+                    sleep 2
+                  done
+                  echo "::error::サービスが準備完了になりません（/readyz=${ready} StartTenantRegistration=${probe}）"
+                  exit 1
+
+            - name: Run the onboarding check
+              if: steps.changes.outputs.changed == 'true'
+              run: ./scripts/dev/tenant-management-onboarding.sh
+
+            - name: Verify no token appears in the gateway log
+              if: steps.changes.outputs.changed == 'true'
+              run: |
+                  set -euo pipefail
+                  if docker compose logs --no-color server | grep -nE 'eyJ[A-Za-z0-9_-]{20,}'; then
+                    echo "::error::Gateway のログにトークンらしき文字列があります"
+                    exit 1
+                  fi
+
+            - name: Dump service logs
+              if: failure() && (steps.up.outcome == 'success' || steps.up.outcome == 'failure')
+              run: docker compose logs --no-color
+
+            - name: Stop services
+              if: always() && (steps.up.outcome == 'success' || steps.up.outcome == 'failure')
+              run: docker compose down -v
