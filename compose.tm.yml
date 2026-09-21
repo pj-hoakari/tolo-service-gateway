@@ -1,6 +1,6 @@
 services:
     tenant-management:
-        image: ${TOLO_TM_IMAGE:-ghcr.io/pj-hoakari/tolo-tenant-management:0.1.0}
+        image: ${TOLO_TM_IMAGE:-ghcr.io/pj-hoakari/tolo-tenant-management:0.1.0@sha256:5e8d85d73d5e2c01ca417cef1ee8464667c2b2884de3f4872bc5217399e6ec3c}
         environment:
             SERVER_ADDR: :8080
             DATABASE_URL: postgres://tenant-management-db:5432/tenant_management?sslmode=disable&user=tenant_management&password=${TOLO_TM_DB_PASSWORD:-tenant_management}
@@ -14,7 +14,7 @@ services:
                 condition: service_started
 
     tenant-management-migrate:
-        image: ${TOLO_TM_MIGRATE_IMAGE:-ghcr.io/pj-hoakari/tolo-tenant-management-migrate:0.1.0}
+        image: ${TOLO_TM_MIGRATE_IMAGE:-ghcr.io/pj-hoakari/tolo-tenant-management-migrate:0.1.0@sha256:0fe94712fba3d2083917213179589e12d9ca64ff2883e2d763a177dc21c82689}
         command:
             - -database
             - postgres://tenant-management-db:5432/tenant_management?sslmode=disable&user=tenant_management&password=${TOLO_TM_DB_PASSWORD:-tenant_management}
@@ -25,7 +25,7 @@ services:
         restart: "no"
 
     tenant-management-db:
-        image: postgres:18-alpine
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
         environment:
             POSTGRES_DB: tenant_management
             POSTGRES_USER: tenant_management
