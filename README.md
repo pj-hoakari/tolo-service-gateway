@@ -122,7 +122,8 @@ IdP へ届かない・5xx が返るといった一時的な失敗は 5 秒ごと
 照会の結果は jti 単位で 60 秒キャッシュするため、失効はその範囲で遅れて反映される  
 IdP へ照会できないときは当該 6 RPC だけを `unauthenticated`（理由 `introspection_unavailable`）で拒否し、他の RPC は通す  
 失効済みと報告されたトークンは `unauthenticated`（理由 `token_revoked`）になる  
-`IDP_INTROSPECTION_CLIENT_ID` と `IDP_INTROSPECTION_CLIENT_SECRET_FILE` が未設定なら照会できないため、6 RPC は `introspection_unavailable` で拒否され続ける（起動時に警告を 1 回記録する）  
+`IDP_ISSUER` を設定したら `IDP_INTROSPECTION_CLIENT_ID` と `IDP_INTROSPECTION_CLIENT_SECRET_FILE` も必須で、揃っていなければ設定エラーとして起動しない  
+照会なしで動かすときは `IDP_INTROSPECTION=disabled` を明示する（このとき 6 RPC は `introspection_unavailable` で拒否され続け、起動時に警告を 1 回記録する）  
 introspection を設定したのに IdP の metadata に `introspection_endpoint` が無い場合は、設定の誤りとしてプロセスが終了する
 
 `IDP_LEGACY_EVENTS_WRITE_SCOPE=enabled` を設定すると、外部トークンの `events.write` を `events.manage`・`events.operate`・`events.report` の3つとして扱う（既定は無効で、有効なときは起動時に警告を 1 回記録する）  
@@ -175,8 +176,9 @@ curl -X POST -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\"}" htt
 | `IDP_ISSUER` | 任意 | なし | 外部 IdP の issuer（絶対 HTTP URL。userinfo・query・fragment は持てない）。設定すると外部トークンの検証が有効になる。`INTERNAL_JWT_ISSUER` と同じ値は設定エラーになる |
 | `IDP_AUDIENCE` | `IDP_ISSUER` があるとき必須 | なし | 外部トークンに要求する `aud`（バックエンド API 全体の論理 audience。例 `backend-api`）。`IDP_ISSUER` 無しで指定すると設定エラーになる |
 | `IDP_ALGORITHMS` | 任意 | `RS256` | 受理する署名アルゴリズムのカンマ区切り。`RS256` と `ES256` だけを指定でき、それ以外の値・空要素・重複と、`IDP_ISSUER` 無しの指定は設定エラーになる |
-| `IDP_INTROSPECTION_CLIENT_ID` | 任意 | なし | 失効照会（introspection）を呼ぶための client ID。`IDP_INTROSPECTION_CLIENT_SECRET_FILE` と対で設定する |
-| `IDP_INTROSPECTION_CLIENT_SECRET_FILE` | `IDP_INTROSPECTION_CLIENT_ID` があるとき必須 | なし | client secret を 1 行で収めたファイルのパス（末尾の改行は除く）。起動時に 1 回読み込み、読めない・空の場合は起動に失敗する。片方だけの指定と、`IDP_ISSUER` 無しの指定は設定エラーになる |
+| `IDP_INTROSPECTION` | 任意 | `required` | 失効照会（introspection）の扱い。`required` は資格情報の 2 変数が揃っていなければ設定エラーにする。`disabled` は照会を行わないことを明示し、このとき資格情報を指定すると設定エラーになる。それ以外の値（`Required`・`true`・前後に空白がある値など）と、`IDP_ISSUER` 無しの指定は設定エラーになる |
+| `IDP_INTROSPECTION_CLIENT_ID` | `IDP_ISSUER` があるとき必須（`IDP_INTROSPECTION=disabled` を明示した場合を除く） | なし | 失効照会（introspection）を呼ぶための client ID。`IDP_INTROSPECTION_CLIENT_SECRET_FILE` と対で設定する |
+| `IDP_INTROSPECTION_CLIENT_SECRET_FILE` | `IDP_INTROSPECTION_CLIENT_ID` と同じ | なし | client secret を 1 行で収めたファイルのパス（末尾の改行は除く）。起動時に 1 回読み込み、読めない・空の場合は起動に失敗する。片方だけの指定と、`IDP_ISSUER` 無しの指定は設定エラーになる |
 | `IDP_LEGACY_EVENTS_WRITE_SCOPE` | 任意 | なし | `enabled` を指定したときだけ、外部トークンの `events.write` を `events.manage`・`events.operate`・`events.report` として扱う移行用の読み替えを有効にする。`enabled` 以外の値（`true`・`Enabled`・前後に空白がある `enabled` など）と、`IDP_ISSUER` 無しの指定は設定エラーになる |
 | `TOLO_GATEWAY_DESTINATIONS_FILE` | 必須 | なし | 宛先設定ファイル（JSON）のパス。起動時に読み込み、読めない・形式が不正・RPC 登録表と噛み合わない場合は起動に失敗する |
 | `TOLO_GATEWAY_TRUSTED_PROXY_HOPS` | 任意 | `0` | 信頼する前段プロキシの段数（0〜16 の整数）。監査ログの `source_ip` を `X-Forwarded-For` の右から何番目で採るかを決める。範囲外の値と整数でない値は設定エラーになる |

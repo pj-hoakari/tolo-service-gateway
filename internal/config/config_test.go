@@ -33,6 +33,7 @@ func TestLoad(t *testing.T) {
 				"INTERNAL_JWT_PUBLISHED_KEY_FILES": "next-key=/etc/tolo/keys/next.pub.pem",
 				"IDP_ISSUER":                       "https://idp.example.com",
 				"IDP_AUDIENCE":                     "backend-api",
+				"IDP_INTROSPECTION":                "disabled",
 				"TOLO_GATEWAY_DESTINATIONS_FILE":   "/etc/tolo/gateway/destinations.json",
 			},
 			wantErr:         false,
@@ -162,6 +163,7 @@ func TestLoad(t *testing.T) {
 				"INTERNAL_JWT_SIGNING_KEY_ID":    "dev-key-1",
 				"IDP_ISSUER":                     "https://idp.example.com",
 				"IDP_AUDIENCE":                   "backend-api",
+				"IDP_INTROSPECTION":              "disabled",
 				"TOLO_GATEWAY_DESTINATIONS_FILE": "/etc/tolo/gateway/destinations.json",
 			},
 			wantErr:              false,
@@ -648,6 +650,7 @@ func TestLoadIDP(t *testing.T) {
 					"IDP_ISSUER":                     tt.issuer,
 					"IDP_AUDIENCE":                   tt.audience,
 					"IDP_ALGORITHMS":                 tt.algorithms,
+					"IDP_INTROSPECTION":              idpIntrospectionFor(tt.issuer),
 				}[key]
 			})
 
@@ -747,66 +750,172 @@ func TestLoadIntrospection(t *testing.T) {
 
 	tests := map[string]struct {
 		issuer          string
+		introspection   string
 		clientID        string
 		secretFile      string
 		wantClientID    string
 		wantSecret      string
+		wantDisabled    bool
 		wantErrContains string
 	}{
-		"nothing set": {
-			issuer:          "https://idp.example.com",
-			clientID:        "",
-			secretFile:      "",
-			wantClientID:    "",
-			wantSecret:      "",
-			wantErrContains: "",
-		},
 		"both values set": {
 			issuer:          "https://idp.example.com",
+			introspection:   "",
 			clientID:        "gateway-introspection",
 			secretFile:      secretFile,
 			wantClientID:    "gateway-introspection",
 			wantSecret:      credential,
+			wantDisabled:    false,
+			wantErrContains: "",
+		},
+		"both values set and introspection required": {
+			issuer:          "https://idp.example.com",
+			introspection:   "required",
+			clientID:        "gateway-introspection",
+			secretFile:      secretFile,
+			wantClientID:    "gateway-introspection",
+			wantSecret:      credential,
+			wantDisabled:    false,
+			wantErrContains: "",
+		},
+		"nothing set": {
+			issuer:          "https://idp.example.com",
+			introspection:   "",
+			clientID:        "",
+			secretFile:      "",
+			wantClientID:    "",
+			wantSecret:      "",
+			wantDisabled:    false,
+			wantErrContains: "IDP_INTROSPECTION",
+		},
+		"nothing set and introspection required": {
+			issuer:          "https://idp.example.com",
+			introspection:   "required",
+			clientID:        "",
+			secretFile:      "",
+			wantClientID:    "",
+			wantSecret:      "",
+			wantDisabled:    false,
+			wantErrContains: "IDP_INTROSPECTION",
+		},
+		"nothing set and introspection disabled": {
+			issuer:          "https://idp.example.com",
+			introspection:   "disabled",
+			clientID:        "",
+			secretFile:      "",
+			wantClientID:    "",
+			wantSecret:      "",
+			wantDisabled:    true,
+			wantErrContains: "",
+		},
+		"both values set and introspection disabled": {
+			issuer:          "https://idp.example.com",
+			introspection:   "disabled",
+			clientID:        "gateway-introspection",
+			secretFile:      secretFile,
+			wantClientID:    "",
+			wantSecret:      "",
+			wantDisabled:    false,
+			wantErrContains: "IDP_INTROSPECTION",
+		},
+		"another case is not accepted": {
+			issuer:          "https://idp.example.com",
+			introspection:   "Required",
+			clientID:        "gateway-introspection",
+			secretFile:      secretFile,
+			wantClientID:    "",
+			wantSecret:      "",
+			wantDisabled:    false,
+			wantErrContains: "IDP_INTROSPECTION",
+		},
+		"true is not accepted": {
+			issuer:          "https://idp.example.com",
+			introspection:   "true",
+			clientID:        "gateway-introspection",
+			secretFile:      secretFile,
+			wantClientID:    "",
+			wantSecret:      "",
+			wantDisabled:    false,
+			wantErrContains: "IDP_INTROSPECTION",
+		},
+		"surrounded by spaces": {
+			issuer:          "https://idp.example.com",
+			introspection:   " disabled ",
+			clientID:        "",
+			secretFile:      "",
+			wantClientID:    "",
+			wantSecret:      "",
+			wantDisabled:    false,
+			wantErrContains: "IDP_INTROSPECTION",
+		},
+		"the mode without the issuer": {
+			issuer:          "",
+			introspection:   "disabled",
+			clientID:        "",
+			secretFile:      "",
+			wantClientID:    "",
+			wantSecret:      "",
+			wantDisabled:    false,
+			wantErrContains: "IDP_ISSUER",
+		},
+		"neither the issuer nor anything else": {
+			issuer:          "",
+			introspection:   "",
+			clientID:        "",
+			secretFile:      "",
+			wantClientID:    "",
+			wantSecret:      "",
+			wantDisabled:    false,
 			wantErrContains: "",
 		},
 		"the client ID without the secret file": {
 			issuer:          "https://idp.example.com",
+			introspection:   "",
 			clientID:        "gateway-introspection",
 			secretFile:      "",
 			wantClientID:    "",
 			wantSecret:      "",
+			wantDisabled:    false,
 			wantErrContains: "IDP_INTROSPECTION_CLIENT_SECRET_FILE",
 		},
 		"the secret file without the client ID": {
 			issuer:          "https://idp.example.com",
+			introspection:   "",
 			clientID:        "",
 			secretFile:      secretFile,
 			wantClientID:    "",
 			wantSecret:      "",
+			wantDisabled:    false,
 			wantErrContains: "IDP_INTROSPECTION_CLIENT_ID",
 		},
 		"introspection without the issuer": {
 			issuer:          "",
+			introspection:   "",
 			clientID:        "gateway-introspection",
 			secretFile:      secretFile,
 			wantClientID:    "",
 			wantSecret:      "",
+			wantDisabled:    false,
 			wantErrContains: "IDP_ISSUER",
 		},
 		"a secret file that does not exist": {
 			issuer:          "https://idp.example.com",
+			introspection:   "",
 			clientID:        "gateway-introspection",
 			secretFile:      t.TempDir() + "/absent",
 			wantClientID:    "",
 			wantSecret:      "",
+			wantDisabled:    false,
 			wantErrContains: "IDP_INTROSPECTION_CLIENT_SECRET_FILE",
 		},
 		"an empty secret file": {
 			issuer:          "https://idp.example.com",
+			introspection:   "",
 			clientID:        "gateway-introspection",
 			secretFile:      writeSecretFile(t, "\n"),
 			wantClientID:    "",
 			wantSecret:      "",
+			wantDisabled:    false,
 			wantErrContains: "IDP_INTROSPECTION_CLIENT_SECRET_FILE",
 		},
 	}
@@ -823,6 +932,7 @@ func TestLoadIntrospection(t *testing.T) {
 					"TOLO_GATEWAY_DESTINATIONS_FILE":       "/etc/tolo/gateway/destinations.json",
 					"IDP_ISSUER":                           tt.issuer,
 					"IDP_AUDIENCE":                         idpAudienceFor(tt.issuer),
+					"IDP_INTROSPECTION":                    tt.introspection,
 					"IDP_INTROSPECTION_CLIENT_ID":          tt.clientID,
 					"IDP_INTROSPECTION_CLIENT_SECRET_FILE": tt.secretFile,
 				}[key]
@@ -854,6 +964,10 @@ func TestLoadIntrospection(t *testing.T) {
 
 			if got := cfg.IDPIntrospectionSecretFile; got != tt.secretFile {
 				t.Errorf("IDPIntrospectionSecretFile = %q, want %q", got, tt.secretFile)
+			}
+
+			if got := cfg.IDPIntrospectionDisabled; got != tt.wantDisabled {
+				t.Errorf("IDPIntrospectionDisabled = %v, want %v", got, tt.wantDisabled)
 			}
 		})
 	}
@@ -971,6 +1085,7 @@ func TestLoadLegacyEventsWriteScope(t *testing.T) {
 					"TOLO_GATEWAY_DESTINATIONS_FILE": "/etc/tolo/gateway/destinations.json",
 					"IDP_ISSUER":                     tt.issuer,
 					"IDP_AUDIENCE":                   idpAudienceFor(tt.issuer),
+					"IDP_INTROSPECTION":              idpIntrospectionFor(tt.issuer),
 					"IDP_LEGACY_EVENTS_WRITE_SCOPE":  tt.raw,
 				}[key]
 			})
@@ -1016,4 +1131,12 @@ func idpAudienceFor(issuer string) string {
 	}
 
 	return "backend-api"
+}
+
+func idpIntrospectionFor(issuer string) string {
+	if issuer == "" {
+		return ""
+	}
+
+	return "disabled"
 }
