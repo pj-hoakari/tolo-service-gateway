@@ -132,8 +132,8 @@ func run() error {
 
 		var introspector authn.Introspector
 
-		if cfg.IDPIntrospectionClientID == "" {
-			slog.Warn("token introspection is disabled because IDP_INTROSPECTION_CLIENT_ID is not set; the administrative write RPCs are rejected as unauthenticated")
+		if cfg.IDPIntrospectionDisabled {
+			slog.Warn("token introspection is disabled by IDP_INTROSPECTION=disabled; the administrative write RPCs are rejected as unauthenticated")
 		} else {
 			introspector = provider
 		}
@@ -293,10 +293,16 @@ func configLogAttrs(cfg config.Config) []any {
 	}
 
 	if cfg.IDPIssuer != "" {
+		introspection := "required"
+		if cfg.IDPIntrospectionDisabled {
+			introspection = "disabled"
+		}
+
 		attrs = append(attrs,
 			"idp_issuer", cfg.IDPIssuer,
 			"idp_audience", cfg.IDPAudience,
 			"idp_algorithms", cfg.IDPAlgorithms,
+			"idp_introspection", introspection,
 			"idp_legacy_events_write_scope", cfg.IDPLegacyEventsWriteScope,
 		)
 	}
