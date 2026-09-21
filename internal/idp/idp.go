@@ -146,6 +146,7 @@ func (p *Provider) resolve(ctx context.Context, metadata externaltoken.Metadata)
 		RefreshCooldown: 0,
 		FailureCooldown: 0,
 		FetchTimeout:    0,
+		RetryBackoff:    nil,
 		MaxDocumentSize: 0,
 		Clock:           p.clock,
 	})

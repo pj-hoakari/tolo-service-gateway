@@ -38,7 +38,8 @@ var (
 	ErrKeysUnavailable = errors.New("the IdP verification keys are unavailable")
 	ErrInvalidJWKS     = errors.New("JWKS document is invalid")
 
-	ErrInvalidJWKSURL = errors.New("JWKS URL is not an absolute HTTP URL")
+	ErrInvalidJWKSURL      = errors.New("JWKS URL is not an absolute HTTP URL")
+	ErrInvalidRetryBackoff = errors.New("JWKS retry backoff has a negative delay")
 
 	errFetchRequired = errors.New("JWKS fetch required")
 	errUnusableKey   = errors.New("unusable JWKS key")
@@ -51,8 +52,13 @@ type KeySetConfig struct {
 	RefreshCooldown time.Duration
 	FailureCooldown time.Duration
 	FetchTimeout    time.Duration
+	RetryBackoff    []time.Duration
 	MaxDocumentSize int64
 	Clock           func() time.Time
+}
+
+func DefaultRetryBackoff() []time.Duration {
+	return []time.Duration{100 * time.Millisecond, 200 * time.Millisecond}
 }
 
 type KeySet struct {
@@ -62,6 +68,7 @@ type KeySet struct {
 	refreshCooldown time.Duration
 	failureCooldown time.Duration
 	fetchTimeout    time.Duration
+	retryBackoff    []time.Duration
 	maxDocumentSize int64
 	now             func() time.Time
 
@@ -91,6 +98,11 @@ func NewKeySet(config KeySetConfig) (*KeySet, error) {
 		clock = time.Now
 	}
 
+	backoff, err := retryBackoff(config.RetryBackoff)
+	if err != nil {
+		return nil, err
+	}
+
 	return &KeySet{
 		url:             config.URL,
 		client:          client,
@@ -98,6 +110,7 @@ func NewKeySet(config KeySetConfig) (*KeySet, error) {
 		refreshCooldown: orDefaultDuration(config.RefreshCooldown, DefaultRefreshCooldown),
 		failureCooldown: orDefaultDuration(config.FailureCooldown, DefaultFailureCooldown),
 		fetchTimeout:    orDefaultDuration(config.FetchTimeout, DefaultFetchTimeout),
+		retryBackoff:    backoff,
 		maxDocumentSize: orDefaultSize(config.MaxDocumentSize, DefaultMaxDocumentSize),
 		now:             clock,
 		group:           singleflight.Group{},
@@ -174,13 +187,33 @@ func (k *KeySet) fetch(ctx context.Context) error {
 }
 
 func (k *KeySet) refresh(ctx context.Context) error {
-	keys, err := k.load(ctx)
-	if err != nil {
-		k.recordFailure(ctx, err)
+	var lastErr error
 
-		return err
+	for attempt := 0; attempt <= len(k.retryBackoff); attempt++ {
+		if attempt > 0 && !waitFor(ctx, k.retryBackoff[attempt-1]) {
+			break
+		}
+
+		keys, err := k.load(ctx)
+		if err == nil {
+			k.store(keys)
+
+			return nil
+		}
+
+		lastErr = err
+
+		if !isTransientFetchError(err) {
+			break
+		}
 	}
 
+	k.recordFailure(ctx, lastErr)
+
+	return lastErr
+}
+
+func (k *KeySet) store(keys map[string]crypto.PublicKey) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
@@ -190,8 +223,46 @@ func (k *KeySet) refresh(ctx context.Context) error {
 	k.lastRefresh = now
 	k.lastFailure = time.Time{}
 	k.lastError = nil
+}
 
-	return nil
+func isTransientFetchError(err error) bool {
+	var status *unexpectedStatusError
+
+	if errors.As(err, &status) {
+		return status.code == http.StatusTooManyRequests || status.code >= http.StatusInternalServerError
+	}
+
+	return errors.Is(err, ErrFetch)
+}
+
+func waitFor(ctx context.Context, delay time.Duration) bool {
+	if delay <= 0 {
+		return ctx.Err() == nil
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func retryBackoff(configured []time.Duration) ([]time.Duration, error) {
+	if configured == nil {
+		return DefaultRetryBackoff(), nil
+	}
+
+	for index, delay := range configured {
+		if delay < 0 {
+			return nil, fmt.Errorf("%w: RetryBackoff[%d] is %s", ErrInvalidRetryBackoff, index, delay)
+		}
+	}
+
+	return slices.Clone(configured), nil
 }
 
 func (k *KeySet) load(ctx context.Context) (map[string]crypto.PublicKey, error) {
