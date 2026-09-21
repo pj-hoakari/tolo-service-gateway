@@ -26,6 +26,20 @@ var (
 	ErrInvalidMetadata  = errors.New("provider metadata is invalid")
 )
 
+type unexpectedStatusError struct {
+	documentURL string
+	status      string
+	code        int
+}
+
+func (e *unexpectedStatusError) Error() string {
+	return fmt.Sprintf("%s: %s: %s", ErrUnexpectedStatus.Error(), e.documentURL, e.status)
+}
+
+func (e *unexpectedStatusError) Unwrap() error {
+	return ErrUnexpectedStatus
+}
+
 type Metadata struct {
 	Issuer                string
 	JWKSURI               string
@@ -184,7 +198,11 @@ func fetchDocument(ctx context.Context, client *http.Client, documentURL string,
 	}()
 
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: %s: %s", ErrUnexpectedStatus, documentURL, response.Status)
+		return nil, &unexpectedStatusError{
+			documentURL: documentURL,
+			status:      response.Status,
+			code:        response.StatusCode,
+		}
 	}
 
 	encoded, err := io.ReadAll(io.LimitReader(response.Body, maxSize+1))
