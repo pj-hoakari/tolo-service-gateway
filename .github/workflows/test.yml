@@ -19,7 +19,7 @@ jobs:
 
             - name: Detect changes
               id: changes
-              uses: ./.github/actions/detect-changes
+              uses: pj-hoakari/actions/detect-changes@3cf99dacd5f2b5135f15ce80118d9647dbae6a2d # v20261002
               with:
                   paths: |
                       **/*.go

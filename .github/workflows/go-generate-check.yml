@@ -19,7 +19,7 @@ jobs:
 
             - name: Detect changes
               id: changes
-              uses: ./.github/actions/detect-changes
+              uses: pj-hoakari/actions/detect-changes@3cf99dacd5f2b5135f15ce80118d9647dbae6a2d # v20261002
               with:
                   paths: |
                       **/*.go
@@ -34,16 +34,6 @@ jobs:
                   go-version-file: go.mod
                   cache: true
 
-            - name: Run generators
+            - name: Check generated code
               if: steps.changes.outputs.changed == 'true'
-              run: go generate ./...
-
-            - name: Verify generated code is up to date
-              if: steps.changes.outputs.changed == 'true'
-              run: |
-                  if [ -n "$(git status --porcelain)" ]; then
-                    echo "::error::go generate の実行後に未コミットの差分があります"
-                    git status --short
-                    git diff
-                    exit 1
-                  fi
+              uses: pj-hoakari/actions/go/generate-check@3cf99dacd5f2b5135f15ce80118d9647dbae6a2d # v20261002

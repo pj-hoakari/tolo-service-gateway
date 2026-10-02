@@ -19,7 +19,7 @@ jobs:
 
             - name: Detect changes
               id: changes
-              uses: ./.github/actions/detect-changes
+              uses: pj-hoakari/actions/detect-changes@3cf99dacd5f2b5135f15ce80118d9647dbae6a2d # v20261002
               with:
                   paths: |
                       proto/**
@@ -28,16 +28,9 @@ jobs:
                       buf.gen.go.yaml
                       go.mod
                       go.sum
+                      mise.toml
                       Taskfile.yml
                       .github/workflows/proto-gen-check.yml
-
-            - name: Set up buf
-              if: steps.changes.outputs.changed == 'true'
-              uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
-              with:
-                  setup_only: true
-                  version: 1.70.0
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Set up Go
               if: steps.changes.outputs.changed == 'true'
@@ -46,27 +39,9 @@ jobs:
                   go-version-file: go.mod
                   cache: true
 
-            - name: Set up Task
+            - name: Check generated connect-go code
               if: steps.changes.outputs.changed == 'true'
-              uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+              uses: pj-hoakari/actions/proto-check@3cf99dacd5f2b5135f15ce80118d9647dbae6a2d # v20261002
               with:
-                  version: 3.x
-                  repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Lint proto
-              if: steps.changes.outputs.changed == 'true'
-              run: task proto:lint
-
-            - name: Regenerate connect-go code
-              if: steps.changes.outputs.changed == 'true'
-              run: task proto:gen:go
-
-            - name: Verify generated code is up to date
-              if: steps.changes.outputs.changed == 'true'
-              run: |
-                  if [ -n "$(git status --porcelain -- gen/)" ]; then
-                    echo "::error::gen/ が最新ではありません"
-                    git status --porcelain -- gen/
-                    git diff -- gen/
-                    exit 1
-                  fi
+                  generate-task: proto:gen:go
+                  generated-path: gen/
