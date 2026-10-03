@@ -25,11 +25,11 @@ jobs:
 
             - name: Resolve version
               id: version
-              uses: pj-hoakari/actions/resolve-version@3cf99dacd5f2b5135f15ce80118d9647dbae6a2d # v20261002
+              uses: pj-hoakari/actions/resolve-version@c61d08b3baf77fa710bcea9849e1c88540fd1248 # v20261003.0.0
               with:
                   version: ${{ inputs.version }}
 
             - name: Build and push
-              uses: pj-hoakari/actions/publish-image@3cf99dacd5f2b5135f15ce80118d9647dbae6a2d # v20261002
+              uses: pj-hoakari/actions/publish-image@c61d08b3baf77fa710bcea9849e1c88540fd1248 # v20261003.0.0
               with:
                   version: ${{ steps.version.outputs.version }}
