@@ -23,7 +23,7 @@ jobs:
 
             - name: Detect changes
               id: changes
-              uses: pj-hoakari/actions/detect-changes@3cf99dacd5f2b5135f15ce80118d9647dbae6a2d # v20261002
+              uses: pj-hoakari/actions/detect-changes@c61d08b3baf77fa710bcea9849e1c88540fd1248 # v20261003.0.0
               with:
                   paths: |
                       **/*.go
