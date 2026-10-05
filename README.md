@@ -210,7 +210,7 @@ compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destina
 
 #### 配備についての注意
 
-ワークロード認証（`docs/workload_auth.md` の環境変数契約）はまだ実装されていない  
+サービス間経路の内部用受信口と呼び出し元の識別（`docs/service_transport.md`）はまだ実装されていない  
 これを実装するまで、本番相当の環境へこのビルドを配備してはならない  
 同じ警告は起動時の構造化ログにも出力される
 
