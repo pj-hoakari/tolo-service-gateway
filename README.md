@@ -228,7 +228,7 @@ RPC 登録表が参照する宛先が設定に無い場合も、設定にある�
 compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destinations.json` へ読み込み専用でマウントしている
 
 登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService`（宛先 `tolo-tenant-management`）、Graph Authoring の `tolo.graph.v1.GraphAuthoringService` と `tolo.graph.v1.GraphSupplyService`（宛先 `tolo-graph-authoring`）が入っている  
-ただし base の compose には Tenant Management と Graph Authoring のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる（`compose.tm.yml` を重ねると Tenant Management へ届く）
+ただし base の compose には Tenant Management と Graph Authoring のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる（`compose.tm.yml` を重ねると Tenant Management へ、さらに `compose.ga.yml` を重ねると Graph Authoring へ届く。`docs/dev_tenant_management.md`・`docs/dev_graph_authoring.md`）
 
 #### 配備についての注意
 
