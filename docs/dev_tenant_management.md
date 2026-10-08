@@ -19,7 +19,8 @@ docker compose -p tolotmcheck -f compose.yml -f compose.tm.yml up -d --build
 
 | サービス | ホスト | コンテナ内 |
 | --- | --- | --- |
-| `server` | `http://localhost:8080` | `http://server:8080` |
+| `server`（公開用） | `http://localhost:8080` | `http://server:8080` |
+| `server`（内部用） | （公開しない） | `http://server:8090` |
 | `fakeidp` | `http://localhost:8082` | `http://fakeidp:8080` |
 | `tenant-management` | （公開しない） | `http://tenant-management:8080` |
 | `tenant-management-db` | （公開しない） | `tenant-management-db:5432` |

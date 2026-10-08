@@ -21,7 +21,3 @@ func PublicRoutes(jwks http.Handler) Routes {
 		mux.Handle("GET "+JWKSPath, jwks)
 	}
 }
-
-func WorkloadRoutes() Routes {
-	return func(_ *http.ServeMux) {}
-}

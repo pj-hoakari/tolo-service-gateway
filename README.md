@@ -31,18 +31,19 @@ task up:build
 鍵がすでにボリュームにあれば `keygen` は何もしないため、起動を繰り返しても鍵は変わらない  
 鍵を作り直すには `docker compose down -v` でボリュームごと削除してから起動し直す
 
-サーバーは `http://localhost:8080` で待ち受ける（停止は `task down`）  
-現段階の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）・公開 JWKS と、匿名で呼べる業務 RPC になる  
+`server` は `TOLO_GATEWAY_LISTENER_MODE=split` で、公開用（8080）と内部用（8090）の 2 つの listener を起動する（停止は `task down`）  
+ホストへ公開するのは公開用の `http://localhost:8080` だけで、内部用の 8090 はホストへ公開せず、compose ネットワーク内の `http://server:8090` でだけ届く  
+公開用の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）・公開 JWKS と、匿名で呼べる業務 RPC になる  
 `/healthz` はプロセスが応答できる限り 200 を返す  
 `/readyz` は登録された準備チェックがすべて成功したときだけ 200 を返し、1 つでも失敗すれば 503 を返す（失敗の内容は応答本文には出さず、サーバー側のログにだけ記録する）  
-`/.well-known/jwks.json` は内部 JWT の署名検証用公開鍵を JWKS として返す  
+`/.well-known/jwks.json` は内部 JWT の署名検証用公開鍵を JWKS として返す（公開用 listener だけに載る）  
 この経路は認証不要で、`Authorization`・`workload-authorization`・`X-Serverless-Authorization`・`DPoP` のどの認証ヘッダが付いていても内容は変わらず、identity も作らない  
 返すのは署名鍵と `INTERNAL_JWT_PUBLISHED_KEY_FILES` の公開鍵で、秘密鍵成分（`d`）は含まない  
 応答には `Cache-Control: public, max-age=300` と本文から導いた ETag が付き、同じ ETag を `If-None-Match` で送れば 304 を返す
 
 `server` は起動時に RPC 登録表（公開 proto の認可ポリシーと宛先の束縛）を導出し、宛先設定と突き合わせ、登録済み service ごとに型付き委譲のハンドラーを立てる  
 転送するのは、資格情報を伴わない匿名 RPC と、外部トークンの検証を通った RPC になる  
-`DPoP`・`workload-authorization`・`X-Serverless-Authorization` のいずれかが付いた要求は、匿名で呼べる RPC であっても `unauthenticated` を返す（送信者拘束とワークロード認証が未実装のため、匿名へフォールバックしない）  
+公開用 listener では、`DPoP`・`workload-authorization`・`X-Serverless-Authorization`・`tolo-caller-service` のいずれかが付いた要求は、匿名で呼べる RPC であっても `unauthenticated` を返す（送信者拘束は未実装で、サービス間の呼び出しは内部用 listener だけで受けるため、匿名へフォールバックしない）  
 `Authorization` が付いた要求は外部トークンとして検証し、検証できない場合と `IDP_ISSUER` が未設定の場合は `unauthenticated` を返す（匿名で呼べる RPC でも同じ）  
 認証必須の RPC とサービス専用の RPC も、資格情報なしでは `unauthenticated` を返す  
 登録表に無い RPC は `unimplemented` を返す  
@@ -62,6 +63,7 @@ RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`
 | 段階 | `failure_reason` | 意味 |
 | --- | --- | --- |
 | Gateway の認証 | `workload_authorization` | ワークロード認証用のヘッダが付いていた（未実装のため拒否する） |
+| 〃 | `caller_service_on_public` | 公開用 listener の要求に `tolo-caller-service` が付いていた |
 | 〃 | `dpop_unsupported`／`sender_constrained_unsupported` | `DPoP` ヘッダ、または `cnf` を持つトークン（未実装のため拒否する） |
 | 〃 | `malformed_authorization` | `Authorization` が `Bearer <token>` の形でない、または複数ある |
 | 〃 | `external_authorization` | 外部トークン検証が無効（`IDP_ISSUER` が未設定） |
@@ -168,7 +170,10 @@ curl -X POST -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\"}" htt
 
 | 変数 | 必須 | 既定値 | 内容 |
 | --- | --- | --- | --- |
-| `SERVER_ADDR` | 任意 | `:8080` | HTTP サーバーの待受アドレス |
+| `TOLO_GATEWAY_LISTENER_MODE` | 必須 | なし | 起動する listener。`split` は公開用と内部用の 2 つ（Compose）、`public` と `internal` はその 1 つだけ（Cloud Run の各配備）を起動する。表記どおりの小文字だけを受け付け、未設定・空・それ以外の値は設定エラーになる |
+| `TOLO_GATEWAY_PUBLIC_PORT` | `split` で必須 | なし | 公開用 listener のポート（1〜65535 の整数）。`public`・`internal` で指定すると設定エラーになる |
+| `TOLO_GATEWAY_INTERNAL_PORT` | `split` で必須 | なし | 内部用 listener のポート（1〜65535 の整数）。`TOLO_GATEWAY_PUBLIC_PORT` と同じ値は設定エラーになる。`public`・`internal` で指定すると設定エラーになる |
+| `PORT` | `public`・`internal` で必須 | なし | 唯一の listener のポート（1〜65535 の整数）。Cloud Run が与える。`split` では読まない |
 | `INTERNAL_JWT_ISSUER` | 必須 | なし | 内部 JWT の issuer ID |
 | `INTERNAL_JWT_SIGNING_KEY_FILE` | 必須 | なし | 内部 JWT の署名鍵ファイル（P-256 の EC 秘密鍵の PEM。SEC1 または PKCS#8）のパス。起動時に読み込み、読めない・PEM でない・P-256 でない場合は起動に失敗する |
 | `INTERNAL_JWT_SIGNING_KEY_ID` | 必須 | なし | 署名鍵の kid。発行する内部 JWT のヘッダと公開 JWKS に載る |
@@ -184,6 +189,8 @@ curl -X POST -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\"}" htt
 | `TOLO_GATEWAY_TRUSTED_PROXY_HOPS` | 任意 | `0` | 信頼する前段プロキシの段数（0〜16 の整数）。監査ログの `source_ip` を `X-Forwarded-For` の右から何番目で採るかを決める。範囲外の値と整数でない値は設定エラーになる |
 
 必須の変数が欠けている場合は設定エラーとして起動に失敗する  
+廃止した `SERVER_ADDR`・`TOLO_WORKLOAD_AUTH_MODE`・`TOLO_GATEWAY_ROLE`・`TOLO_GATEWAY_WORKLOAD_PORT` のどれかが設定されていても、設定エラーとして起動に失敗する  
+listener のいずれかが待受を始められない場合も、プロセスは起動に失敗する  
 compose を使わずに起動する場合、開発用の署名鍵は `openssl ecparam -name prime256v1 -genkey -noout -out <path>` で生成できる（鍵ファイルはリポジトリに置かない）
 
 #### 宛先設定ファイル
@@ -210,9 +217,9 @@ compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destina
 
 #### 配備についての注意
 
-サービス間経路の内部用受信口と呼び出し元の識別（`docs/service_transport.md`）はまだ実装されていない  
-これを実装するまで、本番相当の環境へこのビルドを配備してはならない  
-同じ警告は起動時の構造化ログにも出力される
+内部用 listener へ到達できる呼び出し元の制限はアプリではなくプラットフォームが担う（`docs/service_transport.md`）  
+Cloud Run では内部用の配備の ingress を内部に限り、各サービスの実行 SA にだけ Invoker を付与する。Compose では内部用のポートをホストへ公開しない  
+アプリはこの構成を検査できないため、配備ごとに確かめる
 
 ### トレースの確認（Jaeger）
 

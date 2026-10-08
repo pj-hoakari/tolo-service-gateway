@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,7 +18,6 @@ func TestLoad(t *testing.T) {
 		env                  map[string]string
 		wantErr              bool
 		wantErrContains      []string
-		wantListenAddr       string
 		wantIssuerID         string
 		wantSigningKey       config.KeyFile
 		wantPublishedKeys    []config.KeyFile
@@ -26,7 +26,6 @@ func TestLoad(t *testing.T) {
 	}{
 		"all values set": {
 			env: map[string]string{
-				"SERVER_ADDR":                      "127.0.0.1:9000",
 				"INTERNAL_JWT_ISSUER":              "service-gateway",
 				"INTERNAL_JWT_SIGNING_KEY_FILE":    "/etc/tolo/signing-key.pem",
 				"INTERNAL_JWT_SIGNING_KEY_ID":      "dev-key-1",
@@ -38,7 +37,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:         false,
 			wantErrContains: nil,
-			wantListenAddr:  "127.0.0.1:9000",
 			wantIssuerID:    "service-gateway",
 			wantSigningKey:  config.KeyFile{ID: "dev-key-1", Path: "/etc/tolo/signing-key.pem"},
 			wantPublishedKeys: []config.KeyFile{
@@ -56,24 +54,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              false,
 			wantErrContains:      nil,
-			wantListenAddr:       ":8080",
-			wantIssuerID:         "service-gateway",
-			wantSigningKey:       config.KeyFile{ID: "dev-key-1", Path: "/etc/tolo/signing-key.pem"},
-			wantPublishedKeys:    nil,
-			wantIDPIssuer:        "",
-			wantDestinationsFile: "/etc/tolo/gateway/destinations.json",
-		},
-		"empty listen address falls back to the default": {
-			env: map[string]string{
-				"SERVER_ADDR":                    "",
-				"INTERNAL_JWT_ISSUER":            "service-gateway",
-				"INTERNAL_JWT_SIGNING_KEY_FILE":  "/etc/tolo/signing-key.pem",
-				"INTERNAL_JWT_SIGNING_KEY_ID":    "dev-key-1",
-				"TOLO_GATEWAY_DESTINATIONS_FILE": "/etc/tolo/gateway/destinations.json",
-			},
-			wantErr:              false,
-			wantErrContains:      nil,
-			wantListenAddr:       ":8080",
 			wantIssuerID:         "service-gateway",
 			wantSigningKey:       config.KeyFile{ID: "dev-key-1", Path: "/etc/tolo/signing-key.pem"},
 			wantPublishedKeys:    nil,
@@ -82,7 +62,6 @@ func TestLoad(t *testing.T) {
 		},
 		"values are not trimmed": {
 			env: map[string]string{
-				"SERVER_ADDR":                      " :8081 ",
 				"INTERNAL_JWT_ISSUER":              " service-gateway ",
 				"INTERNAL_JWT_SIGNING_KEY_FILE":    " /etc/tolo/signing-key.pem ",
 				"INTERNAL_JWT_SIGNING_KEY_ID":      " dev-key-1 ",
@@ -91,7 +70,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:         false,
 			wantErrContains: nil,
-			wantListenAddr:  " :8081 ",
 			wantIssuerID:    " service-gateway ",
 			wantSigningKey:  config.KeyFile{ID: " dev-key-1 ", Path: " /etc/tolo/signing-key.pem "},
 			wantPublishedKeys: []config.KeyFile{
@@ -110,7 +88,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              false,
 			wantErrContains:      nil,
-			wantListenAddr:       ":8080",
 			wantIssuerID:         "service-gateway",
 			wantSigningKey:       config.KeyFile{ID: "dev-key-1", Path: "/etc/tolo/signing-key.pem"},
 			wantPublishedKeys:    nil,
@@ -127,7 +104,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:         false,
 			wantErrContains: nil,
-			wantListenAddr:  ":8080",
 			wantIssuerID:    "service-gateway",
 			wantSigningKey:  config.KeyFile{ID: "dev-key-1", Path: "/etc/tolo/signing-key.pem"},
 			wantPublishedKeys: []config.KeyFile{
@@ -147,7 +123,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:         false,
 			wantErrContains: nil,
-			wantListenAddr:  ":8080",
 			wantIssuerID:    "service-gateway",
 			wantSigningKey:  config.KeyFile{ID: "dev-key-1", Path: "/etc/tolo/signing-key.pem"},
 			wantPublishedKeys: []config.KeyFile{
@@ -168,7 +143,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              false,
 			wantErrContains:      nil,
-			wantListenAddr:       ":8080",
 			wantIssuerID:         "service-gateway",
 			wantSigningKey:       config.KeyFile{ID: "dev-key-1", Path: "/etc/tolo/signing-key.pem"},
 			wantPublishedKeys:    nil,
@@ -183,7 +157,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_ISSUER"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -199,7 +172,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_ISSUER"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -214,7 +186,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_SIGNING_KEY_FILE"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -230,7 +201,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_SIGNING_KEY_FILE"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -245,7 +215,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_SIGNING_KEY_ID"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -261,7 +230,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_SIGNING_KEY_ID"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -276,7 +244,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"TOLO_GATEWAY_DESTINATIONS_FILE"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -292,7 +259,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"TOLO_GATEWAY_DESTINATIONS_FILE"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -308,7 +274,6 @@ func TestLoad(t *testing.T) {
 				"INTERNAL_JWT_SIGNING_KEY_ID",
 				"TOLO_GATEWAY_DESTINATIONS_FILE",
 			},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -325,7 +290,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_PUBLISHED_KEY_FILES", "entry 1"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -342,7 +306,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_PUBLISHED_KEY_FILES", "key ID"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -359,7 +322,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_PUBLISHED_KEY_FILES", "key file path"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -376,7 +338,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_PUBLISHED_KEY_FILES", "entry 2"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -393,7 +354,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_PUBLISHED_KEY_FILES", "entry 2"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -410,7 +370,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_PUBLISHED_KEY_FILES", "next-key"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -427,7 +386,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"INTERNAL_JWT_PUBLISHED_KEY_FILES", "dev-key-1"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -444,7 +402,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:              true,
 			wantErrContains:      []string{"IDP_ISSUER", "INTERNAL_JWT_ISSUER"},
-			wantListenAddr:       "",
 			wantIssuerID:         "",
 			wantSigningKey:       config.KeyFile{ID: "", Path: ""},
 			wantPublishedKeys:    nil,
@@ -457,9 +414,7 @@ func TestLoad(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := config.Load(func(key string) string {
-				return tt.env[key]
-			})
+			cfg, err := config.Load(withPublicListener(tt.env))
 
 			if tt.wantErr {
 				if err == nil {
@@ -477,10 +432,6 @@ func TestLoad(t *testing.T) {
 
 			if err != nil {
 				t.Fatalf("Load() error = %v, want nil", err)
-			}
-
-			if got := cfg.ListenAddr; got != tt.wantListenAddr {
-				t.Errorf("ListenAddr = %q, want %q", got, tt.wantListenAddr)
 			}
 
 			if got := cfg.IssuerID; got != tt.wantIssuerID {
@@ -641,18 +592,16 @@ func TestLoadIDP(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := config.Load(func(key string) string {
-				return map[string]string{
-					"INTERNAL_JWT_ISSUER":            "service-gateway",
-					"INTERNAL_JWT_SIGNING_KEY_FILE":  "/etc/tolo/signing-key.pem",
-					"INTERNAL_JWT_SIGNING_KEY_ID":    "dev-key-1",
-					"TOLO_GATEWAY_DESTINATIONS_FILE": "/etc/tolo/gateway/destinations.json",
-					"IDP_ISSUER":                     tt.issuer,
-					"IDP_AUDIENCE":                   tt.audience,
-					"IDP_ALGORITHMS":                 tt.algorithms,
-					"IDP_INTROSPECTION":              idpIntrospectionFor(tt.issuer),
-				}[key]
-			})
+			cfg, err := config.Load(withPublicListener(map[string]string{
+				"INTERNAL_JWT_ISSUER":            "service-gateway",
+				"INTERNAL_JWT_SIGNING_KEY_FILE":  "/etc/tolo/signing-key.pem",
+				"INTERNAL_JWT_SIGNING_KEY_ID":    "dev-key-1",
+				"TOLO_GATEWAY_DESTINATIONS_FILE": "/etc/tolo/gateway/destinations.json",
+				"IDP_ISSUER":                     tt.issuer,
+				"IDP_AUDIENCE":                   tt.audience,
+				"IDP_ALGORITHMS":                 tt.algorithms,
+				"IDP_INTROSPECTION":              idpIntrospectionFor(tt.issuer),
+			}))
 
 			if tt.wantErrContains != "" {
 				if err == nil {
@@ -708,15 +657,13 @@ func TestLoadTrustedProxyHops(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := config.Load(func(key string) string {
-				return map[string]string{
-					"INTERNAL_JWT_ISSUER":             "service-gateway",
-					"INTERNAL_JWT_SIGNING_KEY_FILE":   "/etc/tolo/signing-key.pem",
-					"INTERNAL_JWT_SIGNING_KEY_ID":     "dev-key-1",
-					"TOLO_GATEWAY_DESTINATIONS_FILE":  "/etc/tolo/gateway/destinations.json",
-					"TOLO_GATEWAY_TRUSTED_PROXY_HOPS": tt.raw,
-				}[key]
-			})
+			cfg, err := config.Load(withPublicListener(map[string]string{
+				"INTERNAL_JWT_ISSUER":             "service-gateway",
+				"INTERNAL_JWT_SIGNING_KEY_FILE":   "/etc/tolo/signing-key.pem",
+				"INTERNAL_JWT_SIGNING_KEY_ID":     "dev-key-1",
+				"TOLO_GATEWAY_DESTINATIONS_FILE":  "/etc/tolo/gateway/destinations.json",
+				"TOLO_GATEWAY_TRUSTED_PROXY_HOPS": tt.raw,
+			}))
 
 			if tt.wantErr {
 				if err == nil {
@@ -924,19 +871,17 @@ func TestLoadIntrospection(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := config.Load(func(key string) string {
-				return map[string]string{
-					"INTERNAL_JWT_ISSUER":                  "service-gateway",
-					"INTERNAL_JWT_SIGNING_KEY_FILE":        "/etc/tolo/signing-key.pem",
-					"INTERNAL_JWT_SIGNING_KEY_ID":          "dev-key-1",
-					"TOLO_GATEWAY_DESTINATIONS_FILE":       "/etc/tolo/gateway/destinations.json",
-					"IDP_ISSUER":                           tt.issuer,
-					"IDP_AUDIENCE":                         idpAudienceFor(tt.issuer),
-					"IDP_INTROSPECTION":                    tt.introspection,
-					"IDP_INTROSPECTION_CLIENT_ID":          tt.clientID,
-					"IDP_INTROSPECTION_CLIENT_SECRET_FILE": tt.secretFile,
-				}[key]
-			})
+			cfg, err := config.Load(withPublicListener(map[string]string{
+				"INTERNAL_JWT_ISSUER":                  "service-gateway",
+				"INTERNAL_JWT_SIGNING_KEY_FILE":        "/etc/tolo/signing-key.pem",
+				"INTERNAL_JWT_SIGNING_KEY_ID":          "dev-key-1",
+				"TOLO_GATEWAY_DESTINATIONS_FILE":       "/etc/tolo/gateway/destinations.json",
+				"IDP_ISSUER":                           tt.issuer,
+				"IDP_AUDIENCE":                         idpAudienceFor(tt.issuer),
+				"IDP_INTROSPECTION":                    tt.introspection,
+				"IDP_INTROSPECTION_CLIENT_ID":          tt.clientID,
+				"IDP_INTROSPECTION_CLIENT_SECRET_FILE": tt.secretFile,
+			}))
 
 			if tt.wantErrContains != "" {
 				if err == nil {
@@ -991,18 +936,16 @@ func TestLoadTrimsTheSecretFile(t *testing.T) {
 
 			secretFile := writeSecretFile(t, content)
 
-			cfg, err := config.Load(func(key string) string {
-				return map[string]string{
-					"INTERNAL_JWT_ISSUER":                  "service-gateway",
-					"INTERNAL_JWT_SIGNING_KEY_FILE":        "/etc/tolo/signing-key.pem",
-					"INTERNAL_JWT_SIGNING_KEY_ID":          "dev-key-1",
-					"TOLO_GATEWAY_DESTINATIONS_FILE":       "/etc/tolo/gateway/destinations.json",
-					"IDP_ISSUER":                           "https://idp.example.com",
-					"IDP_AUDIENCE":                         "backend-api",
-					"IDP_INTROSPECTION_CLIENT_ID":          "gateway-introspection",
-					"IDP_INTROSPECTION_CLIENT_SECRET_FILE": secretFile,
-				}[key]
-			})
+			cfg, err := config.Load(withPublicListener(map[string]string{
+				"INTERNAL_JWT_ISSUER":                  "service-gateway",
+				"INTERNAL_JWT_SIGNING_KEY_FILE":        "/etc/tolo/signing-key.pem",
+				"INTERNAL_JWT_SIGNING_KEY_ID":          "dev-key-1",
+				"TOLO_GATEWAY_DESTINATIONS_FILE":       "/etc/tolo/gateway/destinations.json",
+				"IDP_ISSUER":                           "https://idp.example.com",
+				"IDP_AUDIENCE":                         "backend-api",
+				"IDP_INTROSPECTION_CLIENT_ID":          "gateway-introspection",
+				"IDP_INTROSPECTION_CLIENT_SECRET_FILE": secretFile,
+			}))
 			if err != nil {
 				t.Fatalf("Load() error = %v, want nil", err)
 			}
@@ -1077,18 +1020,16 @@ func TestLoadLegacyEventsWriteScope(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := config.Load(func(key string) string {
-				return map[string]string{
-					"INTERNAL_JWT_ISSUER":            "service-gateway",
-					"INTERNAL_JWT_SIGNING_KEY_FILE":  "/etc/tolo/signing-key.pem",
-					"INTERNAL_JWT_SIGNING_KEY_ID":    "dev-key-1",
-					"TOLO_GATEWAY_DESTINATIONS_FILE": "/etc/tolo/gateway/destinations.json",
-					"IDP_ISSUER":                     tt.issuer,
-					"IDP_AUDIENCE":                   idpAudienceFor(tt.issuer),
-					"IDP_INTROSPECTION":              idpIntrospectionFor(tt.issuer),
-					"IDP_LEGACY_EVENTS_WRITE_SCOPE":  tt.raw,
-				}[key]
-			})
+			cfg, err := config.Load(withPublicListener(map[string]string{
+				"INTERNAL_JWT_ISSUER":            "service-gateway",
+				"INTERNAL_JWT_SIGNING_KEY_FILE":  "/etc/tolo/signing-key.pem",
+				"INTERNAL_JWT_SIGNING_KEY_ID":    "dev-key-1",
+				"TOLO_GATEWAY_DESTINATIONS_FILE": "/etc/tolo/gateway/destinations.json",
+				"IDP_ISSUER":                     tt.issuer,
+				"IDP_AUDIENCE":                   idpAudienceFor(tt.issuer),
+				"IDP_INTROSPECTION":              idpIntrospectionFor(tt.issuer),
+				"IDP_LEGACY_EVENTS_WRITE_SCOPE":  tt.raw,
+			}))
 
 			if tt.wantErrContains != "" {
 				if err == nil {
@@ -1139,4 +1080,213 @@ func idpIntrospectionFor(issuer string) string {
 	}
 
 	return "disabled"
+}
+
+func requiredEnv() map[string]string {
+	return map[string]string{
+		"INTERNAL_JWT_ISSUER":            "service-gateway",
+		"INTERNAL_JWT_SIGNING_KEY_FILE":  "/etc/tolo/signing-key.pem",
+		"INTERNAL_JWT_SIGNING_KEY_ID":    "dev-key-1",
+		"TOLO_GATEWAY_DESTINATIONS_FILE": "/etc/tolo/gateway/destinations.json",
+	}
+}
+
+func withPublicListener(env map[string]string) func(string) string {
+	listener := map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "public", "PORT": "8080"}
+
+	return func(key string) string {
+		if value, ok := env[key]; ok {
+			return value
+		}
+
+		return listener[key]
+	}
+}
+
+func TestLoadListeners(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		env             map[string]string
+		wantMode        string
+		wantListeners   []config.Listener
+		wantErrContains []string
+	}{
+		"split": {
+			env: map[string]string{
+				"TOLO_GATEWAY_LISTENER_MODE": "split",
+				"TOLO_GATEWAY_PUBLIC_PORT":   "8080",
+				"TOLO_GATEWAY_INTERNAL_PORT": "8090",
+			},
+			wantMode: "split",
+			wantListeners: []config.Listener{
+				{Inbound: config.InboundPublic, Addr: ":8080"},
+				{Inbound: config.InboundInternal, Addr: ":8090"},
+			},
+		},
+		"public": {
+			env:           map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "public", "PORT": "8080"},
+			wantMode:      "public",
+			wantListeners: []config.Listener{{Inbound: config.InboundPublic, Addr: ":8080"}},
+		},
+		"internal": {
+			env:           map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "internal", "PORT": "65535"},
+			wantMode:      "internal",
+			wantListeners: []config.Listener{{Inbound: config.InboundInternal, Addr: ":65535"}},
+		},
+		"split ignores PORT": {
+			env: map[string]string{
+				"TOLO_GATEWAY_LISTENER_MODE": "split",
+				"TOLO_GATEWAY_PUBLIC_PORT":   "1",
+				"TOLO_GATEWAY_INTERNAL_PORT": "2",
+				"PORT":                       "8080",
+			},
+			wantMode: "split",
+			wantListeners: []config.Listener{
+				{Inbound: config.InboundPublic, Addr: ":1"},
+				{Inbound: config.InboundInternal, Addr: ":2"},
+			},
+		},
+		"no mode": {
+			env:             map[string]string{"PORT": "8080"},
+			wantErrContains: []string{"TOLO_GATEWAY_LISTENER_MODE"},
+		},
+		"empty mode": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "", "PORT": "8080"},
+			wantErrContains: []string{"TOLO_GATEWAY_LISTENER_MODE"},
+		},
+		"a mode in another case": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "Public", "PORT": "8080"},
+			wantErrContains: []string{"TOLO_GATEWAY_LISTENER_MODE", `"Public"`},
+		},
+		"an unknown mode": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "both", "PORT": "8080"},
+			wantErrContains: []string{"TOLO_GATEWAY_LISTENER_MODE", `"both"`},
+		},
+		"split without ports": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "split", "PORT": "8080"},
+			wantErrContains: []string{"TOLO_GATEWAY_PUBLIC_PORT", "TOLO_GATEWAY_INTERNAL_PORT"},
+		},
+		"split without the internal port": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "split", "TOLO_GATEWAY_PUBLIC_PORT": "8080"},
+			wantErrContains: []string{"TOLO_GATEWAY_INTERNAL_PORT"},
+		},
+		"split on one port": {
+			env: map[string]string{
+				"TOLO_GATEWAY_LISTENER_MODE": "split",
+				"TOLO_GATEWAY_PUBLIC_PORT":   "8080",
+				"TOLO_GATEWAY_INTERNAL_PORT": "8080",
+			},
+			wantErrContains: []string{"TOLO_GATEWAY_PUBLIC_PORT", "TOLO_GATEWAY_INTERNAL_PORT", "differ"},
+		},
+		"public without PORT": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "public"},
+			wantErrContains: []string{"PORT"},
+		},
+		"internal without PORT": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "internal"},
+			wantErrContains: []string{"PORT"},
+		},
+		"public with a split port": {
+			env: map[string]string{
+				"TOLO_GATEWAY_LISTENER_MODE": "public",
+				"PORT":                       "8080",
+				"TOLO_GATEWAY_PUBLIC_PORT":   "8080",
+			},
+			wantErrContains: []string{"TOLO_GATEWAY_PUBLIC_PORT"},
+		},
+		"internal with a split port": {
+			env: map[string]string{
+				"TOLO_GATEWAY_LISTENER_MODE": "internal",
+				"PORT":                       "8090",
+				"TOLO_GATEWAY_INTERNAL_PORT": "8090",
+			},
+			wantErrContains: []string{"TOLO_GATEWAY_INTERNAL_PORT"},
+		},
+		"port zero": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "public", "PORT": "0"},
+			wantErrContains: []string{"PORT", `"0"`},
+		},
+		"port above the range": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "public", "PORT": "65536"},
+			wantErrContains: []string{"PORT", `"65536"`},
+		},
+		"port with a sign": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "public", "PORT": "+8080"},
+			wantErrContains: []string{"PORT"},
+		},
+		"port with a leading zero": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "public", "PORT": "08080"},
+			wantErrContains: []string{"PORT"},
+		},
+		"port with spaces": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "public", "PORT": " 8080"},
+			wantErrContains: []string{"PORT"},
+		},
+		"an address instead of a port": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "public", "PORT": ":8080"},
+			wantErrContains: []string{"PORT"},
+		},
+		"a split port out of range": {
+			env: map[string]string{
+				"TOLO_GATEWAY_LISTENER_MODE": "split",
+				"TOLO_GATEWAY_PUBLIC_PORT":   "8080",
+				"TOLO_GATEWAY_INTERNAL_PORT": "70000",
+			},
+			wantErrContains: []string{"TOLO_GATEWAY_INTERNAL_PORT"},
+		},
+		"SERVER_ADDR": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "public", "PORT": "8080", "SERVER_ADDR": ":8080"},
+			wantErrContains: []string{"SERVER_ADDR"},
+		},
+		"TOLO_WORKLOAD_AUTH_MODE": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "public", "PORT": "8080", "TOLO_WORKLOAD_AUTH_MODE": "none"},
+			wantErrContains: []string{"TOLO_WORKLOAD_AUTH_MODE"},
+		},
+		"TOLO_GATEWAY_ROLE": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "split", "TOLO_GATEWAY_PUBLIC_PORT": "8080", "TOLO_GATEWAY_INTERNAL_PORT": "8090", "TOLO_GATEWAY_ROLE": "public"},
+			wantErrContains: []string{"TOLO_GATEWAY_ROLE"},
+		},
+		"TOLO_GATEWAY_WORKLOAD_PORT": {
+			env:             map[string]string{"TOLO_GATEWAY_LISTENER_MODE": "internal", "PORT": "8090", "TOLO_GATEWAY_WORKLOAD_PORT": "8091"},
+			wantErrContains: []string{"TOLO_GATEWAY_WORKLOAD_PORT"},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			env := requiredEnv()
+			maps.Copy(env, tt.env)
+
+			cfg, err := config.Load(func(key string) string { return env[key] })
+
+			if tt.wantErrContains != nil {
+				if err == nil {
+					t.Fatalf("Load() error = nil, want error")
+				}
+
+				for _, want := range tt.wantErrContains {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("Load() error = %q, want it to mention %s", err.Error(), want)
+					}
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Load() error = %v, want nil", err)
+			}
+
+			if got := cfg.ListenerMode; got != tt.wantMode {
+				t.Errorf("ListenerMode = %q, want %q", got, tt.wantMode)
+			}
+
+			if got := cfg.Listeners; !slices.Equal(got, tt.wantListeners) {
+				t.Errorf("Listeners = %+v, want %+v", got, tt.wantListeners)
+			}
+		})
+	}
 }

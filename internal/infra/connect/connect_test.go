@@ -26,6 +26,7 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
 	infraconnect "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/authn"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
@@ -201,24 +202,30 @@ func newConfiguredFixture(
 ) fixture {
 	t.Helper()
 
+	return newFixtureWith(t, infraconnect.Config{
+		Inbound:          config.InboundPublic,
+		Handlers:         handlers,
+		Authenticator:    authenticator,
+		Issuer:           entryIssuer,
+		TrustedProxyHops: trustedProxyHops,
+	})
+}
+
+func newFixtureWith(t *testing.T, cfg infraconnect.Config) fixture {
+	t.Helper()
+
 	logs := &bytes.Buffer{}
 	spans := tracetest.NewSpanRecorder()
 
-	routes := infraconnect.Routes(infraconnect.Config{
-		Registry: newRegistry(t),
-		Handlers: handlers,
-		Audit: audit.NewEmitter(logging.NewLogger(logs, logging.Options{
-			Level:     slog.LevelInfo,
-			AddSource: false,
-			ProjectID: "",
-		})),
-		Authenticator:    authenticator,
-		Issuer:           entryIssuer,
-		TracerProvider:   sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans)),
-		TrustedProxyHops: trustedProxyHops,
-	})
+	cfg.Registry = newRegistry(t)
+	cfg.Audit = audit.NewEmitter(logging.NewLogger(logs, logging.Options{
+		Level:     slog.LevelInfo,
+		AddSource: false,
+		ProjectID: "",
+	}))
+	cfg.TracerProvider = sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
 
-	return fixture{handler: httpapi.NewHandler(routes), audit: logs, spans: spans}
+	return fixture{handler: httpapi.NewHandler(infraconnect.Routes(cfg)), audit: logs, spans: spans}
 }
 
 func newRPCHandler(t *testing.T, handlers map[string]http.Handler) http.Handler {
@@ -421,6 +428,7 @@ func TestRoutesLeaveTheOtherFacesAlone(t *testing.T) {
 		httpapi.HealthRoutes(httpapi.NewReadiness()),
 		httpapi.PublicRoutes(jwks),
 		infraconnect.Routes(infraconnect.Config{
+			Inbound:          config.InboundPublic,
 			Registry:         newRegistry(t),
 			Handlers:         nil,
 			Audit:            nil,
@@ -524,6 +532,11 @@ func TestPipelineAuditsARejection(t *testing.T) {
 			procedure: authenticatedProcedure,
 			header:    nil,
 			want:      "anonymous_rejected",
+		},
+		"a declared caller service on an anonymous procedure": {
+			procedure: anonymousProcedure,
+			header:    map[string]string{"Tolo-Caller-Service": "tolo-observation"},
+			want:      "caller_service_on_public",
 		},
 	}
 
@@ -980,4 +993,56 @@ func TestPipelineAnswersAnUnavailableVerifierWithoutBlamingTheUpstream(t *testin
 		"failure_reason": "verifier_unavailable",
 		"http_status":    float64(http.StatusServiceUnavailable),
 	})
+}
+
+func TestInternalListenerExecutesNoPublicCall(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		procedure string
+		header    map[string]string
+	}{
+		"an anonymous procedure without credentials": {
+			procedure: anonymousProcedure,
+			header:    nil,
+		},
+		"an external token": {
+			procedure: authenticatedProcedure,
+			header:    map[string]string{"Authorization": "Bearer " + acceptedToken},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			mounted := &counter{calls: 0}
+			fixture := newFixtureWith(t, infraconnect.Config{
+				Inbound:       config.InboundInternal,
+				Handlers:      map[string]http.Handler{greetMountPath: mounted},
+				Authenticator: newAuthenticator(),
+				Issuer:        newStubIssuer(),
+			})
+
+			req := newConnectRequest(test.procedure)
+			for key, value := range test.header {
+				req.Header.Set(key, value)
+			}
+
+			res := sendRequest(t, fixture.handler, req)
+
+			if got, want := res.status, http.StatusUnauthorized; got != want {
+				t.Errorf("status = %d, want %d", got, want)
+			}
+
+			if mounted.calls != 0 {
+				t.Errorf("mounted handler calls = %d, want 0", mounted.calls)
+			}
+
+			assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{
+				"method": test.procedure,
+				"result": "unauthenticated",
+			})
+		})
+	}
 }

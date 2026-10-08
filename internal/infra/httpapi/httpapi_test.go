@@ -14,7 +14,6 @@ func TestNewHandlerMountsEveryFace(t *testing.T) {
 	handler := httpapi.NewHandler(
 		httpapi.HealthRoutes(httpapi.NewReadiness()),
 		httpapi.PublicRoutes(httpapi.NewJWKSHandler(newTestIssuer(t))),
-		httpapi.WorkloadRoutes(),
 	)
 
 	for _, path := range []string{"/healthz", "/readyz", httpapi.JWKSPath} {

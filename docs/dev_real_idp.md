@@ -16,7 +16,8 @@ base の `fakeidp` は profile `fakeidp` へ退避されるため既定では起
 
 | サービス | ホスト | コンテナ内 |
 | --- | --- | --- |
-| `server` | `http://localhost:18090` | `http://server:8080` |
+| `server`（公開用） | `http://localhost:18090` | `http://server:8080` |
+| `server`（内部用） | （公開しない） | `http://server:8090` |
 | `testbackend` | `http://localhost:18091` | `http://testbackend:8080` |
 | `idp` | `http://localhost:18080` | `http://idp:8080` |
 | `idp-relation-stub` | `http://localhost:18081` | `http://idp-relation-stub:8080` |

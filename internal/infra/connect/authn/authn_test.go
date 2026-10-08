@@ -204,6 +204,21 @@ func TestAuthenticateNamesTheReason(t *testing.T) {
 			wantCode:   connectrpc.CodeUnauthenticated,
 			wantReason: authn.ReasonWorkloadAuthorization,
 		},
+		"a declared caller service": {
+			procedure:  anonymousProcedure,
+			header:     map[string][]string{"Tolo-Caller-Service": {"tolo-observation"}},
+			wantCode:   connectrpc.CodeUnauthenticated,
+			wantReason: authn.ReasonCallerServiceOnPublic,
+		},
+		"a declared caller service beside a usable token": {
+			procedure: authenticatedProcedure,
+			header: map[string][]string{
+				"Tolo-Caller-Service": {"tolo-observation"},
+				"Authorization":       {"Bearer " + acceptedToken},
+			},
+			wantCode:   connectrpc.CodeUnauthenticated,
+			wantReason: authn.ReasonCallerServiceOnPublic,
+		},
 		"a DPoP proof on its own": {
 			procedure:  anonymousProcedure,
 			header:     map[string][]string{"DPoP": {"proof"}},
