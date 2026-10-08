@@ -20,6 +20,7 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/edgepolicy"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/idp"
 	infraconnect "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/authn"
@@ -28,6 +29,7 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/logging"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/reissue"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/telemetry"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/token"
 )
@@ -105,6 +107,11 @@ func run() error {
 		return fmt.Errorf("build internal JWT issuer: %w", err)
 	}
 
+	reissuer, err := buildReissuer(cfg, rpcRegistry, internalIssuer, signingKeys)
+	if err != nil {
+		return err
+	}
+
 	readiness := httpapi.NewReadiness()
 	readiness.Register(signingKeyReadinessCheck, signingKeyCheck(signingKeys))
 
@@ -159,6 +166,7 @@ func run() error {
 		Audit:            newAuditEmitter(),
 		Authenticator:    authenticator,
 		Issuer:           internalIssuer,
+		Reissuer:         reissuer,
 		TracerProvider:   otel.GetTracerProvider(),
 		TrustedProxyHops: cfg.TrustedProxyHops,
 	}
@@ -234,6 +242,30 @@ func buildRegistry(cfg config.Config) (*registry.Registry, registry.Destinations
 	}
 
 	return rpcRegistry, destinations, nil
+}
+
+func buildReissuer(
+	cfg config.Config,
+	rpcRegistry *registry.Registry,
+	internalIssuer *issuer.Issuer,
+	signingKeys issuer.KeyProvider,
+) (*reissue.Reissuer, error) {
+	policy, err := edgepolicy.Build(catalog.Edges(), rpcRegistry)
+	if err != nil {
+		return nil, fmt.Errorf("build the edge policy: %w", err)
+	}
+
+	contexts, err := token.NewContextVerifier(cfg.IssuerID, signingKeys)
+	if err != nil {
+		return nil, fmt.Errorf("build the context token verifier: %w", err)
+	}
+
+	reissuer, err := reissue.New(rpcRegistry, policy, contexts, internalIssuer)
+	if err != nil {
+		return nil, fmt.Errorf("build the reissuer: %w", err)
+	}
+
+	return reissuer, nil
 }
 
 func buildRPCHandlers(destinations registry.Destinations) (map[string]http.Handler, error) {

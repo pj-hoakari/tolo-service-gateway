@@ -47,14 +47,22 @@ task up:build
 `Authorization` が付いた要求は外部トークンとして検証し、検証できない場合と `IDP_ISSUER` が未設定の場合は `unauthenticated` を返す（匿名で呼べる RPC でも同じ）  
 認証必須の RPC とサービス専用の RPC も、資格情報なしでは `unauthenticated` を返す  
 登録表に無い RPC は `unimplemented` を返す  
+
+内部用 listener はサービス間の呼び出しだけを受け、匿名 RPC と外部トークンによる RPC は実行しない  
+呼び出し元サービスは、`Authorization: Bearer <文脈内部JWT>` があればその `aud`、無ければ `tolo-caller-service` ヘッダで申告された論理サービスIDになる  
+両方がある要求・どちらも無い要求・値が空や重複の要求・`DPoP` が付いた要求は `unauthenticated` を返す（`X-Serverless-Authorization` は Cloud Run の IAM 用で、読まない）  
+文脈内部JWTは Gateway の署名鍵・期限・`aud` で検証し、無効なら `unauthenticated` を返す。申告ヘッダによる新規マシン起点へは読み替えない  
+呼び出し元と RPC の辺が `catalog.Edges()` に無い場合は `permission_denied`、新規マシン起点を許さない辺へ申告ヘッダだけで来た場合は `unauthenticated` を返す  
+通れば宛先宛ての `token_use=service` の内部 JWT を再発行して転送する（受信した `Authorization` と `tolo-caller-service` は後段へ渡さない）  
 Connect・gRPC・gRPC-Web のいずれかとして解釈できる POST には、その形式に合わせたエラーを返し、それ以外の要求（GET を含む）には 404 を返す  
 後段へは受信ヘッダを 1 つも渡さず、後段の応答ヘッダとトレーラーも外へ返さない  
 受信した deadline と cancel は後段へ伝え、残存時間は増やさない（deadline が無いときだけ 30 秒の既定値を使う）  
 後段へ到達できない場合は `unavailable` を返し、宛先のホスト名などの詳細は応答に出さずサーバー側のログにだけ記録する
 
 RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`、項目は `audit` グループにまとめる）  
-項目は `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id` と、値があるときだけ出る `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti`・`origin_sub`・`failure_reason` になる  
+項目は `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id` と、値があるときだけ出る `caller_service`・`origin`・`client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti`・`origin_sub`・`failure_reason` になる  
 外部トークンを受理した場合は `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti` が入る（`IDP_ISSUER` が未設定なら資格情報つきの要求はすべて `unauthenticated` になるため、入るのは `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id`・`failure_reason` だけになる）  
+内部用 listener で再発行した場合は `caller_service`（呼び出し元サービス）と `origin`（`user`・`machine_chain`・`new_machine`）に加え、再発行したトークンの `client_id`・`sub`・`token_use`・`txn`・`jti` と、ユーザー起点なら `src_jti`・`origin_sub` が入る  
 監査ログは `LOG_LEVEL` に依らず必ず出力する  
 登録表に無い RPC・RPC として解釈できない要求（GET を含む）は監査の対象にせず、ログも出さない
 
@@ -74,6 +82,12 @@ RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`
 | 〃 | `internal_only` | サービス間専用の RPC に外部トークンで来た |
 | 〃 | `missing_scope` | RPC が要求する scope が足りない |
 | 〃 | `introspection_unavailable`／`token_revoked` | 失効照会ができない、または失効済み（対象の 6 RPC のみ） |
+| 内部用 listener の識別 | `ambiguous_service_credential` | `Authorization` と `tolo-caller-service` の両方が付いていた |
+| 〃 | `missing_service_credential` | `Authorization` も `tolo-caller-service` も無かった |
+| 〃 | `malformed_caller_service` | `tolo-caller-service` が空、または複数ある |
+| 〃 | `invalid_context` | 文脈内部JWTの形式・署名・期限・`aud` が検証を通らない |
+| 内部用 listener の辺 | `edge_not_allowed` | 呼び出し元と RPC の辺、または文脈の種類が許可されていない |
+| 〃 | `context_required` | 新規マシン起点を許さない辺に、文脈内部JWTなしで来た |
 | 入口変換 | `issue_failed` | 内部 JWT を発行できなかった |
 | 後段 | `upstream_refused` | 後段が要求を処理したうえで断った（`invalid_argument`・`not_found`・`already_exists`・`permission_denied`・`failed_precondition`・`out_of_range`・`aborted`・`unauthenticated`）。code とメッセージはそのまま返す |
 | 〃 | `upstream_error` | 後段が障害を返した（`unavailable`・`resource_exhausted`・`unimplemented`・`data_loss`）。code とメッセージはそのまま返す |

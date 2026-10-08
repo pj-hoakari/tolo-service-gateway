@@ -22,13 +22,15 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/connecterr"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/reissue"
 )
 
 const (
-	resultUnknown                 = "unknown"
-	reasonIssueFailed             = "issue_failed"
-	reasonServiceCallsUnsupported = "service_calls_unsupported"
-	tracerName                    = "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
+	resultUnknown         = "unknown"
+	reasonIssueFailed     = "issue_failed"
+	reasonEdgeNotAllowed  = "edge_not_allowed"
+	reasonContextRequired = "context_required"
+	tracerName            = "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
 )
 
 var (
@@ -47,6 +49,7 @@ type Config struct {
 	Audit            *audit.Emitter
 	Authenticator    *authn.Authenticator
 	Issuer           EntryIssuer
+	Reissuer         *reissue.Reissuer
 	TracerProvider   trace.TracerProvider
 	TrustedProxyHops int
 }
@@ -94,7 +97,7 @@ func (cfg Config) admission() admission {
 
 		return publicAdmission{authenticator: authenticator, issuer: cfg.Issuer}.admit
 	case config.InboundInternal:
-		return rejectServiceCalls
+		return serviceAdmission{reissuer: cfg.Reissuer}.admit
 	default:
 		panic(fmt.Sprintf("connect: unknown inbound %q", cfg.Inbound))
 	}
@@ -155,6 +158,8 @@ func newRecord(entry registry.Entry, sourceIP string, spanContext trace.SpanCont
 	record := &audit.Record{
 		Procedure:     entry.Procedure,
 		SourceIP:      sourceIP,
+		CallerService: "",
+		Origin:        "",
 		ClientID:      "",
 		Subject:       "",
 		TokenUse:      "",
@@ -196,10 +201,65 @@ func (p *pipeline) serve(w http.ResponseWriter, r *http.Request, entry registry.
 	p.next.ServeHTTP(w, r)
 }
 
-func rejectServiceCalls(_ context.Context, _ http.Header, _ registry.Entry, record *audit.Record) (string, *connectrpc.Error) {
-	record.FailureReason = reasonServiceCallsUnsupported
+type serviceAdmission struct {
+	reissuer *reissue.Reissuer
+}
 
-	return "", connecterr.Unauthenticated()
+func (a serviceAdmission) admit(ctx context.Context, header http.Header, entry registry.Entry, record *audit.Record) (string, *connectrpc.Error) {
+	credential, rejection := authn.ServiceCall(header)
+	if rejection != nil {
+		record.FailureReason = rejection.Reason
+
+		return "", rejectionError(ctx, rejection.Code)
+	}
+
+	result, err := a.reissuer.Reissue(ctx, reissue.Request{
+		Caller:       credential.Caller,
+		Procedure:    entry.Procedure,
+		ContextToken: credential.ContextToken,
+	})
+	if err != nil {
+		if !errors.Is(err, reissue.ErrInvalidContext) {
+			record.CallerService = credential.Caller
+		}
+
+		return "", reissueRejection(ctx, err, record)
+	}
+
+	claims := result.Issued.Claims
+
+	record.CallerService = credential.Caller
+	record.Origin = string(result.Origin)
+	record.ClientID = claims.ClientID
+	record.Subject = claims.Subject
+	record.TokenUse = claims.TokenUse
+	record.Txn = claims.Txn
+	record.IssuedJTI = claims.ID
+	record.SourceJTI = claims.SourceJTI
+	record.OriginSubject = claims.OriginSub
+
+	return result.Issued.Token, nil
+}
+
+func reissueRejection(ctx context.Context, err error, record *audit.Record) *connectrpc.Error {
+	switch {
+	case errors.Is(err, reissue.ErrEdgeNotAllowed):
+		record.FailureReason = reasonEdgeNotAllowed
+
+		return connecterr.PermissionDenied()
+	case errors.Is(err, reissue.ErrContextRequired):
+		record.FailureReason = reasonContextRequired
+
+		return connecterr.Unauthenticated()
+	case errors.Is(err, reissue.ErrInvalidContext):
+		record.FailureReason = authn.ReasonInvalidContext
+
+		return connecterr.Unauthenticated()
+	default:
+		record.FailureReason = reasonIssueFailed
+
+		return connecterr.InternalError(ctx, err)
+	}
 }
 
 type publicAdmission struct {

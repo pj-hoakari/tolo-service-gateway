@@ -58,6 +58,8 @@ func TestEmitWritesTheAuditGroup(t *testing.T) {
 	entry := emit(t, &audit.Record{
 		Procedure:     "/greet.v1.GreetService/Greet",
 		SourceIP:      "192.0.2.10",
+		CallerService: "tolo-graph-authoring",
+		Origin:        "user",
 		ClientID:      "tolo-web",
 		Subject:       "user-1",
 		TokenUse:      "tenant_access",
@@ -81,19 +83,21 @@ func TestEmitWritesTheAuditGroup(t *testing.T) {
 	}
 
 	want := map[string]any{
-		"method":      "/greet.v1.GreetService/Greet",
-		"client_id":   "tolo-web",
-		"sub":         "user-1",
-		"token_use":   "tenant_access",
-		"txn":         "txn-1",
-		"jti":         "jti-1",
-		"src_jti":     "src-jti-1",
-		"origin_sub":  "user-1",
-		"result":      "ok",
-		"source_ip":   "192.0.2.10",
-		"http_status": float64(200),
-		"trace_id":    "4bf92f3577b34da6a3ce929d0e0e4736",
-		"span_id":     "00f067aa0ba902b7",
+		"method":         "/greet.v1.GreetService/Greet",
+		"caller_service": "tolo-graph-authoring",
+		"origin":         "user",
+		"client_id":      "tolo-web",
+		"sub":            "user-1",
+		"token_use":      "tenant_access",
+		"txn":            "txn-1",
+		"jti":            "jti-1",
+		"src_jti":        "src-jti-1",
+		"origin_sub":     "user-1",
+		"result":         "ok",
+		"source_ip":      "192.0.2.10",
+		"http_status":    float64(200),
+		"trace_id":       "4bf92f3577b34da6a3ce929d0e0e4736",
+		"span_id":        "00f067aa0ba902b7",
 	}
 
 	group := auditGroup(t, entry)
@@ -143,7 +147,7 @@ func TestEmitOmitsEmptyItemsAndKeepsTheRequiredOnes(t *testing.T) {
 		}
 	}
 
-	for _, key := range []string{"client_id", "sub", "token_use", "txn", "jti", "src_jti", "origin_sub", "trace_id", "span_id"} {
+	for _, key := range []string{"caller_service", "origin", "client_id", "sub", "token_use", "txn", "jti", "src_jti", "origin_sub", "trace_id", "span_id"} {
 		if _, ok := group[key]; ok {
 			t.Errorf("audit.%s = %#v, want it omitted when empty", key, group[key])
 		}

@@ -408,6 +408,17 @@ func TestReissueRejects(t *testing.T) {
 			},
 			want: reissue.ErrEdgeNotAllowed,
 		},
+		"a context token signed with another key from a caller with no edge": {
+			edges:     []edgepolicy.Edge{edge(graphAuthoring, getEventProcedure, []string{internaljwt.TokenUseEventAccess}, false, false)},
+			caller:    observation,
+			procedure: getEventProcedure,
+			contextToken: func(t *testing.T, _ issuer.KeyProvider, _ *issuer.Issuer) string {
+				t.Helper()
+
+				return eventAccessContext(t, newIssuer(t, newKeys(t)), observation).Token
+			},
+			want: reissue.ErrInvalidContext,
+		},
 		"a context token addressed to another service": {
 			edges:     []edgepolicy.Edge{edge(graphAuthoring, getEventProcedure, []string{internaljwt.TokenUseEventAccess}, false, false)},
 			caller:    graphAuthoring,

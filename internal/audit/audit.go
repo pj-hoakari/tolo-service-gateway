@@ -8,6 +8,8 @@ import (
 const (
 	groupKey         = "audit"
 	keyMethod        = "method"
+	keyCallerService = "caller_service"
+	keyOrigin        = "origin"
 	keyClientID      = "client_id"
 	keySubject       = "sub"
 	keyTokenUse      = "token_use"
@@ -26,6 +28,8 @@ const (
 type Record struct {
 	Procedure     string
 	SourceIP      string
+	CallerService string
+	Origin        string
 	ClientID      string
 	Subject       string
 	TokenUse      string
@@ -78,6 +82,8 @@ func (r *Record) attrs() []slog.Attr {
 	attrs := []slog.Attr{slog.String(keyMethod, r.Procedure)}
 
 	optional := []slog.Attr{
+		slog.String(keyCallerService, r.CallerService),
+		slog.String(keyOrigin, r.Origin),
 		slog.String(keyClientID, r.ClientID),
 		slog.String(keySubject, r.Subject),
 		slog.String(keyTokenUse, r.TokenUse),

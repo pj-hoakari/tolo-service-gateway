@@ -1001,14 +1001,17 @@ func TestInternalListenerExecutesNoPublicCall(t *testing.T) {
 	tests := map[string]struct {
 		procedure string
 		header    map[string]string
+		want      string
 	}{
 		"an anonymous procedure without credentials": {
 			procedure: anonymousProcedure,
 			header:    nil,
+			want:      "missing_service_credential",
 		},
 		"an external token": {
 			procedure: authenticatedProcedure,
 			header:    map[string]string{"Authorization": "Bearer " + acceptedToken},
+			want:      "invalid_context",
 		},
 	}
 
@@ -1040,8 +1043,9 @@ func TestInternalListenerExecutesNoPublicCall(t *testing.T) {
 			}
 
 			assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{
-				"method": test.procedure,
-				"result": "unauthenticated",
+				"method":         test.procedure,
+				"result":         "unauthenticated",
+				"failure_reason": test.want,
 			})
 		})
 	}
