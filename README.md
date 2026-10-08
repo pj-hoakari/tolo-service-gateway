@@ -70,7 +70,7 @@ RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`
 
 | 段階 | `failure_reason` | 意味 |
 | --- | --- | --- |
-| Gateway の認証 | `workload_authorization` | ワークロード認証用のヘッダが付いていた（未実装のため拒否する） |
+| Gateway の認証 | `workload_authorization` | 公開用 listener の要求に `workload-authorization` または `X-Serverless-Authorization` が付いていた |
 | 〃 | `caller_service_on_public` | 公開用 listener の要求に `tolo-caller-service` が付いていた |
 | 〃 | `dpop_unsupported`／`sender_constrained_unsupported` | `DPoP` ヘッダ、または `cnf` を持つトークン（未実装のため拒否する） |
 | 〃 | `malformed_authorization` | `Authorization` が `Bearer <token>` の形でない、または複数ある |
