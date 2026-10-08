@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -ldflags='-s -w' -o /out/fakeidp ./cmd/fakeidp
 
 
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:f5b485ea962d9bd1186b2f6b3a061191539b905b82ec395de78cbfae51f20e35 AS fakeidp
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS fakeidp
 
 COPY --from=builder /out/fakeidp /usr/local/bin/fakeidp
 
@@ -40,7 +40,7 @@ USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/fakeidp"]
 
 
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:f5b485ea962d9bd1186b2f6b3a061191539b905b82ec395de78cbfae51f20e35 AS testbackend
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS testbackend
 
 COPY --from=builder /out/testbackend /usr/local/bin/testbackend
 
@@ -51,7 +51,7 @@ USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/testbackend"]
 
 
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:f5b485ea962d9bd1186b2f6b3a061191539b905b82ec395de78cbfae51f20e35 AS server
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS server
 
 COPY --from=builder /out/server /usr/local/bin/server
 
