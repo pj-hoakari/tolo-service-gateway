@@ -215,7 +215,8 @@ compose を使わずに起動する場合、開発用の署名鍵は `openssl ec
 {
   "destinations": {
     "tolo-testbackend": { "url": "http://testbackend:8080" },
-    "tolo-tenant-management": { "url": "http://tenant-management:8080" }
+    "tolo-tenant-management": { "url": "http://tenant-management:8080" },
+    "tolo-graph-authoring": { "url": "http://graph-authoring:8080" }
   }
 }
 ```
@@ -226,8 +227,8 @@ compose を使わずに起動する場合、開発用の署名鍵は `openssl ec
 RPC 登録表が参照する宛先が設定に無い場合も、設定にあるが登録表から参照されない宛先がある場合もエラーになる  
 compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destinations.json` へ読み込み専用でマウントしている
 
-登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService` が入っており、後者2つの宛先は `tolo-tenant-management` になる  
-ただし compose にはまだ Tenant Management のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる
+登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService`（宛先 `tolo-tenant-management`）、Graph Authoring の `tolo.graph.v1.GraphAuthoringService` と `tolo.graph.v1.GraphSupplyService`（宛先 `tolo-graph-authoring`）が入っている  
+ただし base の compose には Tenant Management と Graph Authoring のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる（`compose.tm.yml` を重ねると Tenant Management へ届く）
 
 #### 配備についての注意
 

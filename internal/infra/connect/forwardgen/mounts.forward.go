@@ -4,6 +4,7 @@ package forwardgen
 
 import (
 	connect "connectrpc.com/connect"
+	graphv1connect "github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
 	greetv1connect "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
 	forward "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	relationv1connect "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1/relationv1connect"
@@ -18,6 +19,24 @@ func Mounts() []forward.Mount {
 			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
 				return greetv1connect.NewGreetServiceHandler(
 					&greetV1GreetServiceForwarder{client: greetv1connect.NewGreetServiceClient(httpClient, baseURL, clientOptions...)},
+					handlerOptions...,
+				)
+			},
+		},
+		{
+			Service: graphv1connect.GraphAuthoringServiceName,
+			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
+				return graphv1connect.NewGraphAuthoringServiceHandler(
+					&toloGraphV1GraphAuthoringServiceForwarder{client: graphv1connect.NewGraphAuthoringServiceClient(httpClient, baseURL, clientOptions...)},
+					handlerOptions...,
+				)
+			},
+		},
+		{
+			Service: graphv1connect.GraphSupplyServiceName,
+			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
+				return graphv1connect.NewGraphSupplyServiceHandler(
+					&toloGraphV1GraphSupplyServiceForwarder{client: graphv1connect.NewGraphSupplyServiceClient(httpClient, baseURL, clientOptions...)},
 					handlerOptions...,
 				)
 			},
