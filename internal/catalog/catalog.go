@@ -2,6 +2,7 @@ package catalog
 
 import (
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
+	"github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1/relationv1connect"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1/tenantv1connect"
 
@@ -13,8 +14,9 @@ import (
 const (
 	testBackendDestination      = "tolo-testbackend"
 	tenantManagementDestination = "tolo-tenant-management"
+	graphAuthoringDestination   = "tolo-graph-authoring"
 
-	graphAuthoringCaller = "tolo-graph-authoring"
+	graphAuthoringCaller = graphAuthoringDestination
 	observationCaller    = "tolo-observation"
 )
 
@@ -34,6 +36,16 @@ func Bindings() []registry.Binding {
 			Service:     relationv1connect.RelationAdminServiceName,
 			Destination: tenantManagementDestination,
 			Policies:    relationv1connect.RelationAdminServicePolicies,
+		},
+		{
+			Service:     graphv1connect.GraphAuthoringServiceName,
+			Destination: graphAuthoringDestination,
+			Policies:    graphv1connect.GraphAuthoringServicePolicies,
+		},
+		{
+			Service:     graphv1connect.GraphSupplyServiceName,
+			Destination: graphAuthoringDestination,
+			Policies:    graphv1connect.GraphSupplyServicePolicies,
 		},
 	}
 }

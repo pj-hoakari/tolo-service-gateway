@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"slices"
@@ -10,12 +11,13 @@ import (
 	"strings"
 )
 
-const defaultListenAddr = ":8080"
-
 const maxTrustedProxyHops = 16
 
 const (
-	envListenAddr        = "SERVER_ADDR"
+	envListenerMode      = "TOLO_GATEWAY_LISTENER_MODE"
+	envPublicPort        = "TOLO_GATEWAY_PUBLIC_PORT"
+	envInternalPort      = "TOLO_GATEWAY_INTERNAL_PORT"
+	envPort              = "PORT"
 	envIssuerID          = "INTERNAL_JWT_ISSUER"
 	envSigningKeyFile    = "INTERNAL_JWT_SIGNING_KEY_FILE"
 	envSigningKeyID      = "INTERNAL_JWT_SIGNING_KEY_ID"
@@ -32,6 +34,16 @@ const (
 
 	envIDPLegacyEventsWriteScope = "IDP_LEGACY_EVENTS_WRITE_SCOPE"
 )
+
+const (
+	listenerModeSplit    = "split"
+	listenerModePublic   = "public"
+	listenerModeInternal = "internal"
+)
+
+const maxPort = 65535
+
+var retiredListenerEnvs = []string{"SERVER_ADDR", "TOLO_WORKLOAD_AUTH_MODE", "TOLO_GATEWAY_ROLE", "TOLO_GATEWAY_WORKLOAD_PORT"}
 
 const (
 	introspectionRequired = "required"
@@ -53,8 +65,21 @@ type KeyFile struct {
 	Path string
 }
 
+type Inbound string
+
+const (
+	InboundPublic   Inbound = "public"
+	InboundInternal Inbound = "internal"
+)
+
+type Listener struct {
+	Inbound Inbound
+	Addr    string
+}
+
 type Config struct {
-	ListenAddr                 string
+	ListenerMode               string
+	Listeners                  []Listener
 	IssuerID                   string
 	SigningKey                 KeyFile
 	PublishedKeys              []KeyFile
@@ -71,11 +96,6 @@ type Config struct {
 }
 
 func Load(getenv func(string) string) (Config, error) {
-	listenAddr := getenv(envListenAddr)
-	if listenAddr == "" {
-		listenAddr = defaultListenAddr
-	}
-
 	issuerID := getenv(envIssuerID)
 	signingKeyFile := getenv(envSigningKeyFile)
 	signingKeyID := getenv(envSigningKeyID)
@@ -83,6 +103,13 @@ func Load(getenv func(string) string) (Config, error) {
 	destinationsFile := getenv(envDestinationsFile)
 
 	var errs []error
+
+	listenerMode := getenv(envListenerMode)
+
+	listeners, err := parseListeners(getenv, listenerMode)
+	if err != nil {
+		errs = append(errs, err)
+	}
 
 	if issuerID == "" {
 		errs = append(errs, missingEnvError(envIssuerID))
@@ -146,7 +173,8 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	return Config{
-		ListenAddr:                 listenAddr,
+		ListenerMode:               listenerMode,
+		Listeners:                  listeners,
 		IssuerID:                   issuerID,
 		SigningKey:                 KeyFile{ID: signingKeyID, Path: signingKeyFile},
 		PublishedKeys:              publishedKeys,
@@ -161,6 +189,70 @@ func Load(getenv func(string) string) (Config, error) {
 		DestinationsFile:           destinationsFile,
 		TrustedProxyHops:           trustedProxyHops,
 	}, nil
+}
+
+func parseListeners(getenv func(string) string, mode string) ([]Listener, error) {
+	var errs []error
+
+	for _, key := range retiredListenerEnvs {
+		if getenv(key) != "" {
+			errs = append(errs, fmt.Errorf("%s is no longer supported; configure the listeners with %s", key, envListenerMode))
+		}
+	}
+
+	var listeners []Listener
+
+	switch mode {
+	case listenerModeSplit:
+		public, publicErr := parsePort(envPublicPort, getenv(envPublicPort))
+		internal, internalErr := parsePort(envInternalPort, getenv(envInternalPort))
+
+		errs = append(errs, publicErr, internalErr)
+
+		if publicErr == nil && internalErr == nil && public == internal {
+			errs = append(errs, fmt.Errorf("%s and %s must differ, both are %s", envPublicPort, envInternalPort, public))
+		}
+
+		listeners = []Listener{
+			{Inbound: InboundPublic, Addr: net.JoinHostPort("", public)},
+			{Inbound: InboundInternal, Addr: net.JoinHostPort("", internal)},
+		}
+	case listenerModePublic, listenerModeInternal:
+		for _, key := range []string{envPublicPort, envInternalPort} {
+			if getenv(key) != "" {
+				errs = append(errs, fmt.Errorf("%s must not be set when %s is %q", key, envListenerMode, mode))
+			}
+		}
+
+		port, err := parsePort(envPort, getenv(envPort))
+		errs = append(errs, err)
+
+		listeners = []Listener{{Inbound: Inbound(mode), Addr: net.JoinHostPort("", port)}}
+	case "":
+		errs = append(errs, missingEnvError(envListenerMode))
+	default:
+		errs = append(errs, fmt.Errorf("%s must be %q, %q or %q, got %q",
+			envListenerMode, listenerModeSplit, listenerModePublic, listenerModeInternal, mode))
+	}
+
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+
+	return listeners, nil
+}
+
+func parsePort(key, raw string) (string, error) {
+	if raw == "" {
+		return "", missingEnvError(key)
+	}
+
+	port, err := strconv.Atoi(raw)
+	if err != nil || port < 1 || port > maxPort || strconv.Itoa(port) != raw {
+		return "", fmt.Errorf("%s must be an integer between 1 and %d, got %q", key, maxPort, raw)
+	}
+
+	return raw, nil
 }
 
 func loadIntrospectionSecret(issuer, clientID, secretFile string) (string, error) {

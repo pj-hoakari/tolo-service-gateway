@@ -90,6 +90,17 @@ func (r *Reissuer) Reissue(ctx context.Context, req Request) (Result, error) {
 		return zero, fmt.Errorf("%w: the procedure is required", ErrInvalidRequest)
 	}
 
+	var claims *internaljwt.Claims
+
+	if req.ContextToken != "" {
+		verified, err := r.contexts.Verify(ctx, req.ContextToken, req.Caller)
+		if err != nil {
+			return zero, fmt.Errorf("%w: %w", ErrInvalidContext, err)
+		}
+
+		claims = &verified
+	}
+
 	edge, allowed := r.policy.Lookup(req.Caller, req.Procedure)
 	if !allowed {
 		return zero, fmt.Errorf("%w: %s may not call %s", ErrEdgeNotAllowed, req.Caller, req.Procedure)
@@ -100,21 +111,16 @@ func (r *Reissuer) Reissue(ctx context.Context, req Request) (Result, error) {
 		return zero, fmt.Errorf("%w: %s is not registered", ErrUnknownProcedure, req.Procedure)
 	}
 
-	if req.ContextToken == "" {
+	if claims == nil {
 		return r.newMachineOrigin(ctx, req.Caller, entry.Destination, edge)
 	}
 
-	claims, err := r.contexts.Verify(ctx, req.ContextToken, req.Caller)
-	if err != nil {
-		return zero, fmt.Errorf("%w: %w", ErrInvalidContext, err)
-	}
-
-	if isUserOrigin(claims) {
-		return r.userOrigin(ctx, req.Caller, entry.Destination, edge, claims)
+	if isUserOrigin(*claims) {
+		return r.userOrigin(ctx, req.Caller, entry.Destination, edge, *claims)
 	}
 
 	if claims.TokenUse == internaljwt.TokenUseService {
-		return r.machineChain(ctx, req.Caller, entry.Destination, edge, claims)
+		return r.machineChain(ctx, req.Caller, entry.Destination, edge, *claims)
 	}
 
 	return zero, fmt.Errorf("%w: the token use %q starts no service call", ErrInvalidContext, claims.TokenUse)

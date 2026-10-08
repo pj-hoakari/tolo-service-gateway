@@ -20,6 +20,7 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/edgepolicy"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/idp"
 	infraconnect "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/authn"
@@ -28,6 +29,7 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/httpapi"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/logging"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/reissue"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/telemetry"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/token"
 )
@@ -74,7 +76,6 @@ func run() error {
 	}
 
 	slog.Info("gateway configuration loaded", configLogAttrs(cfg)...)
-	slog.Warn("workload authentication is not implemented yet; do not deploy this build to a production-like environment")
 
 	shutdownTracing, err := telemetry.Setup(ctx)
 	if err != nil {
@@ -104,6 +105,11 @@ func run() error {
 	internalIssuer, signingKeys, err := token.NewIssuerFromFiles(cfg.IssuerID, internalJWTKeyFiles(cfg))
 	if err != nil {
 		return fmt.Errorf("build internal JWT issuer: %w", err)
+	}
+
+	reissuer, err := buildReissuer(cfg, rpcRegistry, internalIssuer, signingKeys)
+	if err != nil {
+		return err
 	}
 
 	readiness := httpapi.NewReadiness()
@@ -153,58 +159,71 @@ func run() error {
 		}()
 	}
 
-	handler := httpapi.NewHandler(
-		httpapi.HealthRoutes(readiness),
-		httpapi.PublicRoutes(httpapi.NewJWKSHandler(internalIssuer)),
-		httpapi.WorkloadRoutes(),
-		infraconnect.Routes(infraconnect.Config{
-			Registry:         rpcRegistry,
-			Handlers:         rpcHandlers,
-			Audit:            newAuditEmitter(),
-			Authenticator:    authenticator,
-			Issuer:           internalIssuer,
-			TracerProvider:   otel.GetTracerProvider(),
-			TrustedProxyHops: cfg.TrustedProxyHops,
-		}),
-	)
-
-	httpServer := &http.Server{
-		Addr:              cfg.ListenAddr,
-		Handler:           handler,
-		ReadHeaderTimeout: readHeaderTimeout,
-		// net/http reports its own failures (a broken connection, a panic in a
-		// handler) through this logger, so it goes to the same structured
-		// stream as everything else.
-		ErrorLog: slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
+	rpcConfig := infraconnect.Config{
+		Inbound:          "",
+		Registry:         rpcRegistry,
+		Handlers:         rpcHandlers,
+		Audit:            newAuditEmitter(),
+		Authenticator:    authenticator,
+		Issuer:           internalIssuer,
+		Reissuer:         reissuer,
+		TracerProvider:   otel.GetTracerProvider(),
+		TrustedProxyHops: cfg.TrustedProxyHops,
 	}
 
-	serveErr := make(chan error, 1)
+	jwks := httpapi.NewJWKSHandler(internalIssuer)
+	servers := make([]*http.Server, 0, len(cfg.Listeners))
+	serveErr := make(chan error, len(cfg.Listeners))
 
-	go func() {
-		slog.Info("server listening", "addr", cfg.ListenAddr)
-
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serveErr <- err
-
-			return
+	for _, listener := range cfg.Listeners {
+		routes := []httpapi.Routes{httpapi.HealthRoutes(readiness)}
+		if listener.Inbound == config.InboundPublic {
+			routes = append(routes, httpapi.PublicRoutes(jwks))
 		}
 
-		serveErr <- nil
-	}()
+		rpcConfig.Inbound = listener.Inbound
+		routes = append(routes, infraconnect.Routes(rpcConfig))
+
+		server := &http.Server{
+			Addr:              listener.Addr,
+			Handler:           httpapi.NewHandler(routes...),
+			ReadHeaderTimeout: readHeaderTimeout,
+			// net/http reports its own failures (a broken connection, a panic in a
+			// handler) through this logger, so it goes to the same structured
+			// stream as everything else.
+			ErrorLog: slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
+		}
+		servers = append(servers, server)
+
+		go func() {
+			slog.Info("server listening", "inbound", listener.Inbound, "addr", listener.Addr)
+
+			serveErr <- fmt.Errorf("serve the %s listener on %s: %w", listener.Inbound, listener.Addr, server.ListenAndServe())
+		}()
+	}
 
 	select {
 	case err := <-serveErr:
-		return err
+		return errors.Join(err, shutdown(servers))
 	case err := <-idpErr:
-		return fmt.Errorf("resolve the IdP metadata: %w", err)
+		return errors.Join(fmt.Errorf("resolve the IdP metadata: %w", err), shutdown(servers))
 	case <-ctx.Done():
 		slog.Info("server shutting down")
 
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-
-		return httpServer.Shutdown(shutdownCtx)
+		return shutdown(servers)
 	}
+}
+
+func shutdown(servers []*http.Server) error {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	errs := make([]error, 0, len(servers))
+	for _, server := range servers {
+		errs = append(errs, server.Shutdown(ctx))
+	}
+
+	return errors.Join(errs...)
 }
 
 func buildRegistry(cfg config.Config) (*registry.Registry, registry.Destinations, error) {
@@ -223,6 +242,30 @@ func buildRegistry(cfg config.Config) (*registry.Registry, registry.Destinations
 	}
 
 	return rpcRegistry, destinations, nil
+}
+
+func buildReissuer(
+	cfg config.Config,
+	rpcRegistry *registry.Registry,
+	internalIssuer *issuer.Issuer,
+	signingKeys issuer.KeyProvider,
+) (*reissue.Reissuer, error) {
+	policy, err := edgepolicy.Build(catalog.Edges(), rpcRegistry)
+	if err != nil {
+		return nil, fmt.Errorf("build the edge policy: %w", err)
+	}
+
+	contexts, err := token.NewContextVerifier(cfg.IssuerID, signingKeys)
+	if err != nil {
+		return nil, fmt.Errorf("build the context token verifier: %w", err)
+	}
+
+	reissuer, err := reissue.New(rpcRegistry, policy, contexts, internalIssuer)
+	if err != nil {
+		return nil, fmt.Errorf("build the reissuer: %w", err)
+	}
+
+	return reissuer, nil
 }
 
 func buildRPCHandlers(destinations registry.Destinations) (map[string]http.Handler, error) {
@@ -282,8 +325,15 @@ func configLogAttrs(cfg config.Config) []any {
 		publishedKeyIDs = append(publishedKeyIDs, key.ID)
 	}
 
+	listeners := make([]string, 0, len(cfg.Listeners))
+
+	for _, listener := range cfg.Listeners {
+		listeners = append(listeners, string(listener.Inbound)+"="+listener.Addr)
+	}
+
 	attrs := []any{
-		"addr", cfg.ListenAddr,
+		"listener_mode", cfg.ListenerMode,
+		"listeners", listeners,
 		"issuer", cfg.IssuerID,
 		"signing_key_file", cfg.SigningKey.Path,
 		"signing_kid", cfg.SigningKey.ID,

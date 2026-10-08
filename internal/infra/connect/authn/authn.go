@@ -19,12 +19,14 @@ const (
 	serverlessAuthorizationHeader = "X-Serverless-Authorization"
 	authorizationHeader           = "Authorization"
 	dpopHeader                    = "DPoP"
+	callerServiceHeader           = "Tolo-Caller-Service"
 )
 
 const bearerScheme = "bearer"
 
 const (
 	ReasonWorkloadAuthorization        = "workload_authorization"
+	ReasonCallerServiceOnPublic        = "caller_service_on_public"
 	ReasonExternalAuthorization        = "external_authorization"
 	ReasonAnonymousRejected            = "anonymous_rejected"
 	ReasonDPoPUnsupported              = "dpop_unsupported"
@@ -80,6 +82,10 @@ func NewAuthenticator(verifier ExternalVerifier, introspector Introspector) *Aut
 }
 
 func (a *Authenticator) Authenticate(ctx context.Context, header http.Header, entry registry.Entry) (Result, *Rejection) {
+	if present(header, callerServiceHeader) {
+		return anonymousResult(), unauthenticated(ReasonCallerServiceOnPublic)
+	}
+
 	if present(header, workloadAuthorizationHeader) || present(header, serverlessAuthorizationHeader) {
 		return anonymousResult(), unauthenticated(ReasonWorkloadAuthorization)
 	}

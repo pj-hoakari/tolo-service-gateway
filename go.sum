@@ -1,7 +1,5 @@
 connectrpc.com/connect v1.21.0 h1:LhqSJt7jHf5NJBo9Jq/t/9FjcYAideif0mg+qe2jCUs=
 connectrpc.com/connect v1.21.0/go.mod h1:A2ygJrukXwWy32vkCAAHNVguZrqZ+jeZ9rGRnGR4dN4=
-connectrpc.com/otelconnect v0.9.0 h1:NggB3pzRC3pukQWaYbRHJulxuXvmCKCKkQ9hbrHAWoA=
-connectrpc.com/otelconnect v0.9.0/go.mod h1:AEkVLjCPXra+ObGFCOClcJkNjS7zPaQSqvO0lCyjfZc=
 connectrpc.com/otelconnect v0.10.0 h1:K9Gt3TnhXMbZS+eif9AT3ODRALVh26+iNFUqrBFXu6A=
 connectrpc.com/otelconnect v0.10.0/go.mod h1:AvnyA6v08Yd/5k8Rt6EsBG8SOUed0WDgZfTR5jsbM30=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
@@ -27,6 +25,8 @@ github.com/pj-hoakari/internal-jwt-handling v0.2.0 h1:7ONF0cD3sIBXajM2KOpCafAMDw
 github.com/pj-hoakari/internal-jwt-handling v0.2.0/go.mod h1:xZaLA88tj4EJLG8z1tmnsgV5cqz2IdG9uVXRmDYPDvM=
 github.com/pj-hoakari/protoc-gen-authz-go v0.3.0 h1:oLKiB3M/JaFROsHR7NHU0+kN6IZzNUOrecWAtw7Byu8=
 github.com/pj-hoakari/protoc-gen-authz-go v0.3.0/go.mod h1:wrZQc2mY9d2WXSt/7P3+4Fp5yesNuQPCrEWqt6UGPqI=
+github.com/pj-hoakari/tolo-graph-authoring v0.0.0-20261008084259-f6d7c93f29b5 h1:EQolC40sNcnqFoT9ZaMdeW3pYKjEBEWIcd3lwt+ICng=
+github.com/pj-hoakari/tolo-graph-authoring v0.0.0-20261008084259-f6d7c93f29b5/go.mod h1:RZrNosMRcLyMfhquJZmpfOU58Fw9OwiO55Z1bsvB++U=
 github.com/pj-hoakari/tolo-tenant-management v0.1.0 h1:5o0gAMq+JeagEKZ58kVexKcxRQRv99LNUFhJR3c5YFA=
 github.com/pj-hoakari/tolo-tenant-management v0.1.0/go.mod h1:CHRHAGcl4efAoF8edlgfSFgBfRLfK3AvgjNZw5eisDU=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=

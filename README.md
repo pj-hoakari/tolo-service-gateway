@@ -31,29 +31,38 @@ task up:build
 鍵がすでにボリュームにあれば `keygen` は何もしないため、起動を繰り返しても鍵は変わらない  
 鍵を作り直すには `docker compose down -v` でボリュームごと削除してから起動し直す
 
-サーバーは `http://localhost:8080` で待ち受ける（停止は `task down`）  
-現段階の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）・公開 JWKS と、匿名で呼べる業務 RPC になる  
+`server` は `TOLO_GATEWAY_LISTENER_MODE=split` で、公開用（8080）と内部用（8090）の 2 つの listener を起動する（停止は `task down`）  
+ホストへ公開するのは公開用の `http://localhost:8080` だけで、内部用の 8090 はホストへ公開せず、compose ネットワーク内の `http://server:8090` でだけ届く  
+公開用の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）・公開 JWKS と、匿名で呼べる業務 RPC になる  
 `/healthz` はプロセスが応答できる限り 200 を返す  
 `/readyz` は登録された準備チェックがすべて成功したときだけ 200 を返し、1 つでも失敗すれば 503 を返す（失敗の内容は応答本文には出さず、サーバー側のログにだけ記録する）  
-`/.well-known/jwks.json` は内部 JWT の署名検証用公開鍵を JWKS として返す  
+`/.well-known/jwks.json` は内部 JWT の署名検証用公開鍵を JWKS として返す（公開用 listener だけに載る）  
 この経路は認証不要で、`Authorization`・`workload-authorization`・`X-Serverless-Authorization`・`DPoP` のどの認証ヘッダが付いていても内容は変わらず、identity も作らない  
 返すのは署名鍵と `INTERNAL_JWT_PUBLISHED_KEY_FILES` の公開鍵で、秘密鍵成分（`d`）は含まない  
 応答には `Cache-Control: public, max-age=300` と本文から導いた ETag が付き、同じ ETag を `If-None-Match` で送れば 304 を返す
 
 `server` は起動時に RPC 登録表（公開 proto の認可ポリシーと宛先の束縛）を導出し、宛先設定と突き合わせ、登録済み service ごとに型付き委譲のハンドラーを立てる  
 転送するのは、資格情報を伴わない匿名 RPC と、外部トークンの検証を通った RPC になる  
-`DPoP`・`workload-authorization`・`X-Serverless-Authorization` のいずれかが付いた要求は、匿名で呼べる RPC であっても `unauthenticated` を返す（送信者拘束とワークロード認証が未実装のため、匿名へフォールバックしない）  
+公開用 listener では、`DPoP`・`workload-authorization`・`X-Serverless-Authorization`・`tolo-caller-service` のいずれかが付いた要求は、匿名で呼べる RPC であっても `unauthenticated` を返す（送信者拘束は未実装で、サービス間の呼び出しは内部用 listener だけで受けるため、匿名へフォールバックしない）  
 `Authorization` が付いた要求は外部トークンとして検証し、検証できない場合と `IDP_ISSUER` が未設定の場合は `unauthenticated` を返す（匿名で呼べる RPC でも同じ）  
 認証必須の RPC とサービス専用の RPC も、資格情報なしでは `unauthenticated` を返す  
 登録表に無い RPC は `unimplemented` を返す  
+
+内部用 listener はサービス間の呼び出しだけを受け、匿名 RPC と外部トークンによる RPC は実行しない  
+呼び出し元サービスは、`Authorization: Bearer <文脈内部JWT>` があればその `aud`、無ければ `tolo-caller-service` ヘッダで申告された論理サービスIDになる  
+両方がある要求・どちらも無い要求・値が空や重複の要求・`DPoP` が付いた要求は `unauthenticated` を返す（`X-Serverless-Authorization` は Cloud Run の IAM 用で、読まない）  
+文脈内部JWTは Gateway の署名鍵・期限・`aud` で検証し、無効なら `unauthenticated` を返す。申告ヘッダによる新規マシン起点へは読み替えない  
+呼び出し元と RPC の辺が `catalog.Edges()` に無い場合は `permission_denied`、新規マシン起点を許さない辺へ申告ヘッダだけで来た場合は `unauthenticated` を返す  
+通れば宛先宛ての `token_use=service` の内部 JWT を再発行して転送する（受信した `Authorization` と `tolo-caller-service` は後段へ渡さない）  
 Connect・gRPC・gRPC-Web のいずれかとして解釈できる POST には、その形式に合わせたエラーを返し、それ以外の要求（GET を含む）には 404 を返す  
 後段へは受信ヘッダを 1 つも渡さず、後段の応答ヘッダとトレーラーも外へ返さない  
 受信した deadline と cancel は後段へ伝え、残存時間は増やさない（deadline が無いときだけ 30 秒の既定値を使う）  
 後段へ到達できない場合は `unavailable` を返し、宛先のホスト名などの詳細は応答に出さずサーバー側のログにだけ記録する
 
 RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`、項目は `audit` グループにまとめる）  
-項目は `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id` と、値があるときだけ出る `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti`・`origin_sub`・`failure_reason` になる  
+項目は `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id` と、値があるときだけ出る `caller_service`・`origin`・`client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti`・`origin_sub`・`failure_reason` になる  
 外部トークンを受理した場合は `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti` が入る（`IDP_ISSUER` が未設定なら資格情報つきの要求はすべて `unauthenticated` になるため、入るのは `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id`・`failure_reason` だけになる）  
+内部用 listener で再発行した場合は `caller_service`（呼び出し元サービス）と `origin`（`user`・`machine_chain`・`new_machine`）に加え、再発行したトークンの `client_id`・`sub`・`token_use`・`txn`・`jti` と、ユーザー起点なら `src_jti`・`origin_sub` が入る  
 監査ログは `LOG_LEVEL` に依らず必ず出力する  
 登録表に無い RPC・RPC として解釈できない要求（GET を含む）は監査の対象にせず、ログも出さない
 
@@ -62,6 +71,7 @@ RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`
 | 段階 | `failure_reason` | 意味 |
 | --- | --- | --- |
 | Gateway の認証 | `workload_authorization` | ワークロード認証用のヘッダが付いていた（未実装のため拒否する） |
+| 〃 | `caller_service_on_public` | 公開用 listener の要求に `tolo-caller-service` が付いていた |
 | 〃 | `dpop_unsupported`／`sender_constrained_unsupported` | `DPoP` ヘッダ、または `cnf` を持つトークン（未実装のため拒否する） |
 | 〃 | `malformed_authorization` | `Authorization` が `Bearer <token>` の形でない、または複数ある |
 | 〃 | `external_authorization` | 外部トークン検証が無効（`IDP_ISSUER` が未設定） |
@@ -72,6 +82,12 @@ RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`
 | 〃 | `internal_only` | サービス間専用の RPC に外部トークンで来た |
 | 〃 | `missing_scope` | RPC が要求する scope が足りない |
 | 〃 | `introspection_unavailable`／`token_revoked` | 失効照会ができない、または失効済み（対象の 6 RPC のみ） |
+| 内部用 listener の識別 | `ambiguous_service_credential` | `Authorization` と `tolo-caller-service` の両方が付いていた |
+| 〃 | `missing_service_credential` | `Authorization` も `tolo-caller-service` も無かった |
+| 〃 | `malformed_caller_service` | `tolo-caller-service` が空、または複数ある |
+| 〃 | `invalid_context` | 文脈内部JWTの形式・署名・期限・`aud` が検証を通らない |
+| 内部用 listener の辺 | `edge_not_allowed` | 呼び出し元と RPC の辺、または文脈の種類が許可されていない |
+| 〃 | `context_required` | 新規マシン起点を許さない辺に、文脈内部JWTなしで来た |
 | 入口変換 | `issue_failed` | 内部 JWT を発行できなかった |
 | 後段 | `upstream_refused` | 後段が要求を処理したうえで断った（`invalid_argument`・`not_found`・`already_exists`・`permission_denied`・`failed_precondition`・`out_of_range`・`aborted`・`unauthenticated`）。code とメッセージはそのまま返す |
 | 〃 | `upstream_error` | 後段が障害を返した（`unavailable`・`resource_exhausted`・`unimplemented`・`data_loss`）。code とメッセージはそのまま返す |
@@ -168,7 +184,10 @@ curl -X POST -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\"}" htt
 
 | 変数 | 必須 | 既定値 | 内容 |
 | --- | --- | --- | --- |
-| `SERVER_ADDR` | 任意 | `:8080` | HTTP サーバーの待受アドレス |
+| `TOLO_GATEWAY_LISTENER_MODE` | 必須 | なし | 起動する listener。`split` は公開用と内部用の 2 つ（Compose）、`public` と `internal` はその 1 つだけ（Cloud Run の各配備）を起動する。表記どおりの小文字だけを受け付け、未設定・空・それ以外の値は設定エラーになる |
+| `TOLO_GATEWAY_PUBLIC_PORT` | `split` で必須 | なし | 公開用 listener のポート（1〜65535 の整数）。`public`・`internal` で指定すると設定エラーになる |
+| `TOLO_GATEWAY_INTERNAL_PORT` | `split` で必須 | なし | 内部用 listener のポート（1〜65535 の整数）。`TOLO_GATEWAY_PUBLIC_PORT` と同じ値は設定エラーになる。`public`・`internal` で指定すると設定エラーになる |
+| `PORT` | `public`・`internal` で必須 | なし | 唯一の listener のポート（1〜65535 の整数）。Cloud Run が与える。`split` では読まない |
 | `INTERNAL_JWT_ISSUER` | 必須 | なし | 内部 JWT の issuer ID |
 | `INTERNAL_JWT_SIGNING_KEY_FILE` | 必須 | なし | 内部 JWT の署名鍵ファイル（P-256 の EC 秘密鍵の PEM。SEC1 または PKCS#8）のパス。起動時に読み込み、読めない・PEM でない・P-256 でない場合は起動に失敗する |
 | `INTERNAL_JWT_SIGNING_KEY_ID` | 必須 | なし | 署名鍵の kid。発行する内部 JWT のヘッダと公開 JWKS に載る |
@@ -184,6 +203,8 @@ curl -X POST -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\"}" htt
 | `TOLO_GATEWAY_TRUSTED_PROXY_HOPS` | 任意 | `0` | 信頼する前段プロキシの段数（0〜16 の整数）。監査ログの `source_ip` を `X-Forwarded-For` の右から何番目で採るかを決める。範囲外の値と整数でない値は設定エラーになる |
 
 必須の変数が欠けている場合は設定エラーとして起動に失敗する  
+廃止した `SERVER_ADDR`・`TOLO_WORKLOAD_AUTH_MODE`・`TOLO_GATEWAY_ROLE`・`TOLO_GATEWAY_WORKLOAD_PORT` のどれかが設定されていても、設定エラーとして起動に失敗する  
+listener のいずれかが待受を始められない場合も、プロセスは起動に失敗する  
 compose を使わずに起動する場合、開発用の署名鍵は `openssl ecparam -name prime256v1 -genkey -noout -out <path>` で生成できる（鍵ファイルはリポジトリに置かない）
 
 #### 宛先設定ファイル
@@ -194,7 +215,8 @@ compose を使わずに起動する場合、開発用の署名鍵は `openssl ec
 {
   "destinations": {
     "tolo-testbackend": { "url": "http://testbackend:8080" },
-    "tolo-tenant-management": { "url": "http://tenant-management:8080" }
+    "tolo-tenant-management": { "url": "http://tenant-management:8080" },
+    "tolo-graph-authoring": { "url": "http://graph-authoring:8080" }
   }
 }
 ```
@@ -205,14 +227,14 @@ compose を使わずに起動する場合、開発用の署名鍵は `openssl ec
 RPC 登録表が参照する宛先が設定に無い場合も、設定にあるが登録表から参照されない宛先がある場合もエラーになる  
 compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destinations.json` へ読み込み専用でマウントしている
 
-登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService` が入っており、後者2つの宛先は `tolo-tenant-management` になる  
-ただし compose にはまだ Tenant Management のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる
+登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService`（宛先 `tolo-tenant-management`）、Graph Authoring の `tolo.graph.v1.GraphAuthoringService` と `tolo.graph.v1.GraphSupplyService`（宛先 `tolo-graph-authoring`）が入っている  
+ただし base の compose には Tenant Management と Graph Authoring のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる（`compose.tm.yml` を重ねると Tenant Management へ、さらに `compose.ga.yml` を重ねると Graph Authoring へ届く。`docs/dev_tenant_management.md`・`docs/dev_graph_authoring.md`）
 
 #### 配備についての注意
 
-サービス間経路の内部用受信口と呼び出し元の識別（`docs/service_transport.md`）はまだ実装されていない  
-これを実装するまで、本番相当の環境へこのビルドを配備してはならない  
-同じ警告は起動時の構造化ログにも出力される
+内部用 listener へ到達できる呼び出し元の制限はアプリではなくプラットフォームが担う（`docs/service_transport.md`）  
+Cloud Run では内部用の配備の ingress を内部に限り、各サービスの実行 SA にだけ Invoker を付与する。Compose では内部用のポートをホストへ公開しない  
+アプリはこの構成を検査できないため、配備ごとに確かめる
 
 ### トレースの確認（Jaeger）
 

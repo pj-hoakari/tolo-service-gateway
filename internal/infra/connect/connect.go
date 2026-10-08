@@ -17,17 +17,20 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/authn"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/connecterr"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/reissue"
 )
 
 const (
-	resultUnknown     = "unknown"
-	resultInternal    = "internal"
-	reasonIssueFailed = "issue_failed"
-	tracerName        = "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
+	resultUnknown         = "unknown"
+	reasonIssueFailed     = "issue_failed"
+	reasonEdgeNotAllowed  = "edge_not_allowed"
+	reasonContextRequired = "context_required"
+	tracerName            = "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
 )
 
 var (
@@ -40,11 +43,13 @@ type EntryIssuer interface {
 }
 
 type Config struct {
+	Inbound          config.Inbound
 	Registry         *registry.Registry
 	Handlers         map[string]http.Handler
 	Audit            *audit.Emitter
 	Authenticator    *authn.Authenticator
 	Issuer           EntryIssuer
+	Reissuer         *reissue.Reissuer
 	TracerProvider   trace.TracerProvider
 	TrustedProxyHops int
 }
@@ -54,14 +59,13 @@ func Routes(cfg Config) func(mux *http.ServeMux) {
 	unimplemented := newUnimplementedHandler(errorWriter)
 	tracer := tracerOf(cfg.TracerProvider)
 
-	if cfg.Authenticator == nil {
-		cfg.Authenticator = authn.NewAuthenticator(nil, nil)
-	}
+	admit := cfg.admission()
 
 	return func(mux *http.ServeMux) {
 		for _, path := range slices.Sorted(maps.Keys(cfg.Handlers)) {
 			mux.Handle(path, &pipeline{
 				config:      cfg,
+				admit:       admit,
 				tracer:      tracer,
 				next:        cfg.Handlers[path],
 				fallback:    unimplemented,
@@ -81,8 +85,27 @@ func tracerOf(provider trace.TracerProvider) trace.Tracer {
 	return provider.Tracer(tracerName)
 }
 
+type admission func(ctx context.Context, header http.Header, entry registry.Entry, record *audit.Record) (string, *connectrpc.Error)
+
+func (cfg Config) admission() admission {
+	switch cfg.Inbound {
+	case config.InboundPublic:
+		authenticator := cfg.Authenticator
+		if authenticator == nil {
+			authenticator = authn.NewAuthenticator(nil, nil)
+		}
+
+		return publicAdmission{authenticator: authenticator, issuer: cfg.Issuer}.admit
+	case config.InboundInternal:
+		return serviceAdmission{reissuer: cfg.Reissuer}.admit
+	default:
+		panic(fmt.Sprintf("connect: unknown inbound %q", cfg.Inbound))
+	}
+}
+
 type pipeline struct {
 	config      Config
+	admit       admission
 	tracer      trace.Tracer
 	next        http.Handler
 	fallback    http.Handler
@@ -135,6 +158,8 @@ func newRecord(entry registry.Entry, sourceIP string, spanContext trace.SpanCont
 	record := &audit.Record{
 		Procedure:     entry.Procedure,
 		SourceIP:      sourceIP,
+		CallerService: "",
+		Origin:        "",
 		ClientID:      "",
 		Subject:       "",
 		TokenUse:      "",
@@ -158,28 +183,111 @@ func newRecord(entry registry.Entry, sourceIP string, spanContext trace.SpanCont
 }
 
 func (p *pipeline) serve(w http.ResponseWriter, r *http.Request, entry registry.Entry, record *audit.Record) {
-	result, rejection := p.config.Authenticator.Authenticate(r.Context(), r.Header, entry)
-
+	token, rejection := p.admit(r.Context(), r.Header, entry, record)
 	if rejection != nil {
-		p.reject(w, r, entry, record, result, rejection)
+		slog.WarnContext(r.Context(), "rpc request rejected", "procedure", entry.Procedure, "reason", record.FailureReason)
+
+		record.Result = rejection.Code().String()
+
+		p.writeError(w, r, rejection)
 
 		return
+	}
+
+	if token != "" {
+		r = r.WithContext(forward.ContextWithInternalToken(r.Context(), token))
+	}
+
+	p.next.ServeHTTP(w, r)
+}
+
+type serviceAdmission struct {
+	reissuer *reissue.Reissuer
+}
+
+func (a serviceAdmission) admit(ctx context.Context, header http.Header, entry registry.Entry, record *audit.Record) (string, *connectrpc.Error) {
+	credential, rejection := authn.ServiceCall(header)
+	if rejection != nil {
+		record.FailureReason = rejection.Reason
+
+		return "", rejectionError(ctx, rejection.Code)
+	}
+
+	result, err := a.reissuer.Reissue(ctx, reissue.Request{
+		Caller:       credential.Caller,
+		Procedure:    entry.Procedure,
+		ContextToken: credential.ContextToken,
+	})
+	if err != nil {
+		if !errors.Is(err, reissue.ErrInvalidContext) {
+			record.CallerService = credential.Caller
+		}
+
+		return "", reissueRejection(ctx, err, record)
+	}
+
+	claims := result.Issued.Claims
+
+	record.CallerService = credential.Caller
+	record.Origin = string(result.Origin)
+	record.ClientID = claims.ClientID
+	record.Subject = claims.Subject
+	record.TokenUse = claims.TokenUse
+	record.Txn = claims.Txn
+	record.IssuedJTI = claims.ID
+	record.SourceJTI = claims.SourceJTI
+	record.OriginSubject = claims.OriginSub
+
+	return result.Issued.Token, nil
+}
+
+func reissueRejection(ctx context.Context, err error, record *audit.Record) *connectrpc.Error {
+	switch {
+	case errors.Is(err, reissue.ErrEdgeNotAllowed):
+		record.FailureReason = reasonEdgeNotAllowed
+
+		return connecterr.PermissionDenied()
+	case errors.Is(err, reissue.ErrContextRequired):
+		record.FailureReason = reasonContextRequired
+
+		return connecterr.Unauthenticated()
+	case errors.Is(err, reissue.ErrInvalidContext):
+		record.FailureReason = authn.ReasonInvalidContext
+
+		return connecterr.Unauthenticated()
+	default:
+		record.FailureReason = reasonIssueFailed
+
+		return connecterr.InternalError(ctx, err)
+	}
+}
+
+type publicAdmission struct {
+	authenticator *authn.Authenticator
+	issuer        EntryIssuer
+}
+
+func (a publicAdmission) admit(ctx context.Context, header http.Header, entry registry.Entry, record *audit.Record) (string, *connectrpc.Error) {
+	result, rejection := a.authenticator.Authenticate(ctx, header, entry)
+	if rejection != nil {
+		if result.External != nil {
+			recordExternal(record, *result.External)
+		}
+
+		record.FailureReason = rejection.Reason
+
+		return "", rejectionError(ctx, rejection.Code)
 	}
 
 	if result.External == nil {
-		p.next.ServeHTTP(w, r)
-
-		return
+		return "", nil
 	}
 
-	issued, err := p.issue(r.Context(), entry, *result.External)
+	issued, err := a.issue(ctx, entry, *result.External)
 	if err != nil {
-		record.Result = resultInternal
 		record.FailureReason = reasonIssueFailed
 
-		p.writeError(w, r, connecterr.InternalError(r.Context(), err))
-
-		return
+		return "", connecterr.InternalError(ctx, err)
 	}
 
 	recordExternal(record, *result.External)
@@ -187,29 +295,7 @@ func (p *pipeline) serve(w http.ResponseWriter, r *http.Request, entry registry.
 	record.Txn = issued.Claims.Txn
 	record.IssuedJTI = issued.Claims.ID
 
-	p.next.ServeHTTP(w, r.WithContext(forward.ContextWithInternalToken(r.Context(), issued.Token)))
-}
-
-func (p *pipeline) reject(
-	w http.ResponseWriter,
-	r *http.Request,
-	entry registry.Entry,
-	record *audit.Record,
-	result authn.Result,
-	rejection *authn.Rejection,
-) {
-	slog.WarnContext(r.Context(), "rpc request rejected", "procedure", entry.Procedure, "reason", rejection.Reason)
-
-	if result.External != nil {
-		recordExternal(record, *result.External)
-	}
-
-	err := rejectionError(r.Context(), rejection.Code)
-
-	record.Result = err.Code().String()
-	record.FailureReason = rejection.Reason
-
-	p.writeError(w, r, err)
+	return issued.Token, nil
 }
 
 func rejectionError(ctx context.Context, code connectrpc.Code) *connectrpc.Error {
@@ -228,14 +314,14 @@ func rejectionError(ctx context.Context, code connectrpc.Code) *connectrpc.Error
 	return connecterr.InternalError(ctx, fmt.Errorf("%w: %s", errUnexpectedRejection, code))
 }
 
-func (p *pipeline) issue(ctx context.Context, entry registry.Entry, token authn.ExternalToken) (issuer.Issued, error) {
+func (a publicAdmission) issue(ctx context.Context, entry registry.Entry, token authn.ExternalToken) (issuer.Issued, error) {
 	var zero issuer.Issued
 
-	if p.config.Issuer == nil {
+	if a.issuer == nil {
 		return zero, errMissingIssuer
 	}
 
-	issued, err := p.config.Issuer.IssueFromExternal(ctx, issuer.ExternalTokenInput{
+	issued, err := a.issuer.IssueFromExternal(ctx, issuer.ExternalTokenInput{
 		Audience:        entry.Destination,
 		TokenUse:        token.TokenUse,
 		Subject:         token.Subject,

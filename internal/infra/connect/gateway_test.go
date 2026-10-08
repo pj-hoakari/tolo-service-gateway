@@ -34,6 +34,7 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"
+	"github.com/pj-hoakari/tolo-service-gateway/internal/config"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/fakeidp"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/idp"
 	infraconnect "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect"
@@ -143,6 +144,7 @@ func newGateway(t *testing.T) gatewayFixture {
 	logs := &bytes.Buffer{}
 
 	gateway := httptest.NewServer(httpapi.NewHandler(infraconnect.Routes(infraconnect.Config{
+		Inbound:  config.InboundPublic,
 		Registry: built,
 		Handlers: handlers,
 		Audit: audit.NewEmitter(logging.NewLogger(logs, logging.Options{
@@ -466,6 +468,7 @@ func newVerifyingGatewayWith(t *testing.T, authenticator *authn.Authenticator, b
 	logs := &bytes.Buffer{}
 
 	gateway := httptest.NewServer(httpapi.NewHandler(infraconnect.Routes(infraconnect.Config{
+		Inbound:  config.InboundPublic,
 		Registry: built,
 		Handlers: handlers,
 		Audit: audit.NewEmitter(logging.NewLogger(logs, logging.Options{
