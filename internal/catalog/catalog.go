@@ -3,6 +3,7 @@ package catalog
 import (
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
+	"github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1/observationv1connect"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1/relationv1connect"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1/tenantv1connect"
 
@@ -15,9 +16,10 @@ const (
 	testBackendDestination      = "tolo-testbackend"
 	tenantManagementDestination = "tolo-tenant-management"
 	graphAuthoringDestination   = "tolo-graph-authoring"
+	observationDestination      = "tolo-observation"
 
 	graphAuthoringCaller = graphAuthoringDestination
-	observationCaller    = "tolo-observation"
+	observationCaller    = observationDestination
 )
 
 func Bindings() []registry.Binding {
@@ -47,6 +49,16 @@ func Bindings() []registry.Binding {
 			Destination: graphAuthoringDestination,
 			Policies:    graphv1connect.GraphSupplyServicePolicies,
 		},
+		{
+			Service:     observationv1connect.MeasurementIngestServiceName,
+			Destination: observationDestination,
+			Policies:    observationv1connect.MeasurementIngestServicePolicies,
+		},
+		{
+			Service:     observationv1connect.EdgeDeviceServiceName,
+			Destination: observationDestination,
+			Policies:    observationv1connect.EdgeDeviceServicePolicies,
+		},
 	}
 }
 
@@ -75,6 +87,20 @@ func Edges() []edgepolicy.Edge {
 		{
 			Caller:              observationCaller,
 			Procedure:           tenantv1connect.TenantServiceGetObservationSettingsProcedure,
+			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
+			MachineChain:        true,
+			NewMachineOrigin:    false,
+		},
+		{
+			Caller:              observationCaller,
+			Procedure:           graphv1connect.GraphSupplyServiceGetCurrentRevisionProcedure,
+			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
+			MachineChain:        true,
+			NewMachineOrigin:    false,
+		},
+		{
+			Caller:              observationCaller,
+			Procedure:           graphv1connect.GraphSupplyServiceGetObservationPointMappingsProcedure,
 			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
 			MachineChain:        true,
 			NewMachineOrigin:    false,
