@@ -229,7 +229,8 @@ RPC 登録表が参照する宛先が設定に無い場合も、設定にある�
 compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destinations.json` へ読み込み専用でマウントしている
 
 登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService`（宛先 `tolo-tenant-management`）、Graph Authoring の `tolo.graph.v1.GraphAuthoringService` と `tolo.graph.v1.GraphSupplyService`（宛先 `tolo-graph-authoring`）、Observation の `tolo.observation.v1.MeasurementIngestService` と `tolo.observation.v1.EdgeDeviceService`（宛先 `tolo-observation`）が入っている  
-ただし base の compose には Tenant Management、Graph Authoring、Observation のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる（`compose.tm.yml` を重ねると Tenant Management へ、さらに `compose.ga.yml` を重ねると Graph Authoring へ、`compose.obs.yml` を重ねると Observation へ届く。`docs/dev_tenant_management.md`・`docs/dev_graph_authoring.md`・`docs/dev_observation.md`）
+ただし base の compose には Tenant Management、Graph Authoring、Observation のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる（`compose.tm.yml` を重ねると Tenant Management へ、さらに `compose.ga.yml` を重ねると Graph Authoring へ、`compose.obs.yml` を重ねると Observation へ届く。`docs/dev_tenant_management.md`・`docs/dev_graph_authoring.md`・`docs/dev_observation.md`）  
+さらに `compose.flow.yml` を重ねると Flow Control が加わり、計測値の送信から `optimization_results` に迂回路の提案が保存されるまでを runn の runbook で通せる（`docs/dev_integration.md`）
 
 #### 配備についての注意
 

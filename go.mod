@@ -19,7 +19,7 @@ require (
 	github.com/pj-hoakari/protoc-gen-authz-go v0.3.0
 	github.com/pj-hoakari/tolo-graph-authoring v0.0.0-20261010051011-10c17cbab0ca
 	github.com/pj-hoakari/tolo-kernel-proto v0.1.0
-	github.com/pj-hoakari/tolo-observation v0.0.0-20261010051321-afe7e2a8773a
+	github.com/pj-hoakari/tolo-observation v0.0.0-20261010095131-93c2db64db25
 	github.com/pj-hoakari/tolo-tenant-management v0.1.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
