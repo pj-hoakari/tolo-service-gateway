@@ -1,0 +1,49 @@
+services:
+    observation:
+        build:
+            context: https://github.com/pj-hoakari/tolo-observation.git#afe7e2a8773a1f94d3299186ef30d776d350e142
+        environment:
+            SERVER_ADDR: :8080
+            DATABASE_URL: postgres://observation-db:5432/observation?sslmode=disable&user=observation&password=${TOLO_OBS_DB_PASSWORD:-observation}
+            OBSERVATION_PAGE_BASE_URL: http://localhost:3000/observe
+            INTERNAL_JWKS_URL: http://server:8080/.well-known/jwks.json
+            INTERNAL_JWT_ISSUER: service-gateway
+            INTERNAL_JWT_AUDIENCE: tolo-observation
+            GRAPH_AUTHORING_URL: http://server:8090
+            FLOW_CONTROL_URL: http://flow-control:8080
+        depends_on:
+            observation-migrate:
+                condition: service_completed_successfully
+            server:
+                condition: service_started
+
+    observation-migrate:
+        build:
+            context: https://github.com/pj-hoakari/tolo-observation.git#afe7e2a8773a1f94d3299186ef30d776d350e142
+            target: migrate
+        command:
+            - -database
+            - postgres://observation-db:5432/observation?sslmode=disable&user=observation&password=${TOLO_OBS_DB_PASSWORD:-observation}
+            - up
+        depends_on:
+            observation-db:
+                condition: service_healthy
+        restart: "no"
+
+    observation-db:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        environment:
+            POSTGRES_DB: observation
+            POSTGRES_USER: observation
+            POSTGRES_PASSWORD: ${TOLO_OBS_DB_PASSWORD:-observation}
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+            interval: 5s
+            timeout: 5s
+            retries: 20
+            start_period: 5s
+        volumes:
+            - observation-data:/var/lib/postgresql
+
+volumes:
+    observation-data:

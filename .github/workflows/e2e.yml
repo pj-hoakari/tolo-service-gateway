@@ -9,7 +9,7 @@ permissions:
     contents: read
 
 env:
-    COMPOSE_FILE: compose.yml:compose.tm.yml:compose.ga.yml
+    COMPOSE_FILE: compose.yml:compose.tm.yml:compose.ga.yml:compose.obs.yml
 
 jobs:
     e2e:
@@ -33,6 +33,7 @@ jobs:
                       compose.yml
                       compose.tm.yml
                       compose.ga.yml
+                      compose.obs.yml
                       config/compose/**
                       scripts/dev/**
                       .github/workflows/e2e.yml
@@ -48,18 +49,21 @@ jobs:
                   set -euo pipefail
                   probe_payload='{"name":"ci-readiness","contractPlan":"standard"}'
                   graph_payload='{"eventId":"0123456789abcdef","document":{}}'
+                  observation_payload='{"eventId":"0123456789abcdef"}'
                   for i in $(seq 1 60); do
                     ready="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/readyz || true)"
                     probe="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "$probe_payload" http://localhost:8080/tolo.tenant.v1.TenantService/StartTenantRegistration || true)"
                     graph_token="$(./scripts/dev/fakeidp-token.sh -k event_access -t 0123456789abcdef -e 0123456789abcdef -s events.manage 2>/dev/null || true)"
                     graph="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer ${graph_token}" -d "$graph_payload" http://localhost:8080/tolo.graph.v1.GraphAuthoringService/SaveGraph || true)"
-                    if [ "${ready}" = "200" ] && [ "${probe}" = "200" ] && [ "${graph}" = "400" ]; then
+                    observation_token="$(./scripts/dev/fakeidp-token.sh -k event_access -t 0123456789abcdef -e 0123456789abcdef -s events.read 2>/dev/null || true)"
+                    observation="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer ${observation_token}" -d "$observation_payload" http://localhost:8080/tolo.observation.v1.EdgeDeviceService/ListEdgeDevices || true)"
+                    if [ "${ready}" = "200" ] && [ "${probe}" = "200" ] && [ "${graph}" = "400" ] && [ "${observation}" = "200" ]; then
                       echo "ready after ${i} attempts"
                       exit 0
                     fi
                     sleep 2
                   done
-                  echo "::error::サービスが準備完了になりません（/readyz=${ready} StartTenantRegistration=${probe} SaveGraph=${graph}）"
+                  echo "::error::サービスが準備完了になりません（/readyz=${ready} StartTenantRegistration=${probe} SaveGraph=${graph} ListEdgeDevices=${observation}）"
                   exit 1
 
             - name: Run the onboarding check
@@ -69,6 +73,10 @@ jobs:
             - name: Run the graph authoring check
               if: steps.changes.outputs.changed == 'true'
               run: ./scripts/dev/graph-authoring-event-check.sh
+
+            - name: Run the observation check
+              if: steps.changes.outputs.changed == 'true'
+              run: ./scripts/dev/observation-measurement-check.sh
 
             - name: Verify the internal listener is not published
               if: steps.changes.outputs.changed == 'true'
