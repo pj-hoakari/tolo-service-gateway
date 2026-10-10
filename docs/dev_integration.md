@@ -1,7 +1,8 @@
 # 提案機構の結合環境
 
 `compose.flow.yml` は、`compose.yml`・`compose.tm.yml`・`compose.ga.yml`・`compose.obs.yml` の上に [tolo-flow-control](https://github.com/pj-hoakari/tolo-flow-control) を加えるオーバーライドになる  
-これを重ねると、エッジ端末の計測値が Gateway を通って Observation に届き、Observation が Graph Authoring と Flow Control を呼んで、結果を `optimization_results` に保存するまでを手元で通せる
+これを重ねると、エッジ端末の計測値が Gateway を通って Observation に届き、Observation が Graph Authoring と Flow Control を呼んで、結果を `optimization_results` に保存するまでを手元で通せる  
+通しの確認は [runn](https://github.com/k1LoW/runn) の runbook で行う。runn はホストに入れず、compose の `runn` サービスとしてコンテナで動かす
 
 ## 構成
 
@@ -11,80 +12,91 @@ export COMPOSE_FILE=compose.yml:compose.tm.yml:compose.ga.yml:compose.obs.yml:co
 docker compose up -d --build
 ```
 
-追加されるサービスは `flow-control` だけになる  
+`compose.flow.yml` が加えるサービスは `flow-control` と `runn` の 2 つになる  
 `flow-control` は、tolo-flow-control の既定ブランチ `develop` の固定したコミットを git のビルドコンテキストとしてビルドする  
-Flow Control は Gateway を通らない（ADR-0048）。Observation は `compose.obs.yml` の `FLOW_CONTROL_URL`（`http://flow-control:8080`）で直接呼ぶ
+Flow Control は Gateway を通らない（ADR-0048）。Observation は `compose.obs.yml` の `FLOW_CONTROL_URL`（`http://flow-control:8080`）で直接呼ぶ  
+`runn` は profile `runn` に属するので、`docker compose up` では起動しない
 
 | サービス | ホスト | コンテナ内 |
 | --- | --- | --- |
 | `server`（公開用） | `http://localhost:8080` | `http://server:8080` |
 | `fakeidp` | `http://localhost:8082` | `http://fakeidp:8080` |
 | `flow-control` | （公開しない） | `http://flow-control:8080` |
+| `observation-db` | （公開しない） | `observation-db:5432` |
 
 tolo-web はこの構成に含めない。観測ページは tolo-web 側で起動し、公開用の `http://localhost:8080` へ送る
 
 片付けは、同じ環境変数のまま `docker compose down -v` を実行する
 
-## 事前データの投入
+## 通しの確認
 
-`scripts/dev/integration-seed.sh` は、公開用 listener 越しに次の順で事前データを作る
+```bash
+docker compose run --rm runn
+```
+
+`runn` サービスは `ghcr.io/k1low/runn` の版を固定したイメージで、`scripts/dev/runbooks` を `/books` に読み込み専用でマウントし、`integration-proposal.yml` を実行する  
+Gateway と fakeidp にはサービス名で、Observation の DB には環境変数 `OBSERVATION_DB_DSN` の接続先で届く
+
+runbook は次の 3 つに分かれる
+
+| runbook | 内容 |
+| --- | --- |
+| `integration-seed.yml` | 事前データを作り、作った ID と観測ページの URL を出力する |
+| `integration-cycle.yml` | 1 サイクル分の `Heartbeat` と `ReportMeasurements` を送り、提案を含む行を数える |
+| `integration-proposal.yml` | seed を実行し、cycle を 60 秒ずつ空けて繰り返し、提案を含む行が現れたら成功にする |
+
+`integration-seed.yml` は、公開用 listener 越しに次の順で事前データを作る。トークンは fakeidp の `/token` から取る
 
 1. テナントの作成と所有権の取得
 2. イベントの作成
 3. `SaveGraph` と `PublishRevision`
-4. `RegisterEdgeDevice`
-5. `MapObservationPoint`（登録した観測点をノード `gate` に紐づける）
+4. `RegisterEdgeDevice`（ルートごとに観測点を 1 つ、計 7 つ）
+5. `MapObservationPoint`（各観測点を `anchor.routeId` で同名のルートに紐づける）
 
-各 RPC の応答は標準エラーに出し、標準出力には作った ID だけを `KEY=value` の形で出す
+グラフは迂回路のある会場の形で、ノードは `gate`・`j1`・`hallA`・`hallB`・`j2`・`out` の 6 つ、ルートはすべて `EDGE_DIRECTION_BOTH_WAYS` の 7 本になる
+
+```mermaid
+flowchart LR
+    gate -- e-in-j1 --- j1
+    j1 -- e-j1-hallA --- hallA
+    j1 -- e-j1-hallB --- hallB
+    j1 -- e-j1-j2 --- j2
+    hallA -- e-hallA-j2 --- j2
+    hallB -- e-hallB-j2 --- j2
+    j2 -- e-j2-out --- out
+```
+
+`integration-proposal.yml` は、seed の後に `events.report` の `event_access` トークンを取り、`integration-cycle.yml` を最大 `maxCycles`（既定 30）回繰り返す  
+各サイクルで観測点ごとに送る値は、`integration-cycle.yml` の `vars` の `profile` から runn の式で計算する  
+`i` をサイクルの番号とし、`ramp = max(0, i - surgeStart)` とすると、`countIn` は `through + surge × surgeBase × surgeGrowth ^ ramp` を四捨五入した値、`meanDetectedPeople` は `1 + stagnation × ramp` になる
+
+既定の値では、番号が `surgeStart`（10）以下のサイクルでは一定の流量を送る。その後のサイクルでは `e-j1-hallA` への流量が 1.4 倍ずつ増え、検出人数も 2 ずつ増える  
+Flow Control の発火には停滞警戒の継続 5 分と急増の両方が要るので、手元では 17 サイクル目で提案が出て、runbook 全体で約 16 分かかった  
+急増は直近 30 分の流量の傾きで判定するため、途中でホストがスリープしてサイクルの間隔が空くと、発火までのサイクル数が増える
+
+各サイクルの後、`optimization_results` から、そのイベントの `verdict` が `VERDICT_OPTIMIZED` で、`optimization_result` の `detourPaths` が空でない行を数える  
+行が現れた時点で繰り返しを止め、最後のステップでその行の `id`・`verdict`・`solverStatus`・`detourPaths` を出力する  
+`maxCycles` 回送っても現れなければ失敗になる。回数は `--var` で変えられる
 
 ```bash
-./scripts/dev/integration-seed.sh > /tmp/tolo-seed.env
-cat /tmp/tolo-seed.env
+docker compose run --rm runn run --verbose --var maxCycles:40 integration-proposal.yml
 ```
 
-```text
-TENANT_ID=c625f67fe594a701
-EVENT_ID=c2f08ff259b035ed
-EDGE_DEVICE_ID=d5a9986f573b92c7
-OBSERVATION_POINT_ID=cb1c56c735d52bc5
-```
-
-`RegisterEdgeDevice` の応答にある `observationPageUrl`（`http://localhost:3000/observe/<edge_device_id>`）が、その端末の観測ページになる
-
-## 計測値の送信と結果の確認
-
-エッジ端末として送るときは、fakeidp から `events.report` の `event_access` トークンを取る
+事前データだけを作るときは seed を単独で実行する
 
 ```bash
-source /tmp/tolo-seed.env
-token="$(./scripts/dev/fakeidp-token.sh -k event_access -t "${TENANT_ID}" -e "${EVENT_ID}" -s events.report)"
-post() {
-    curl -sS -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer ${token}" \
-        -d "$2" "http://localhost:8080/$1"
-}
-
-post tolo.observation.v1.EdgeDeviceService/Heartbeat "$(jq -nc \
-    --arg e "${EVENT_ID}" --arg d "${EDGE_DEVICE_ID}" --arg p "${OBSERVATION_POINT_ID}" \
-    '{eventId: $e, edgeDeviceId: $d, activeObservationPointIds: [$p]}')"
-
-post tolo.observation.v1.MeasurementIngestService/ReportMeasurements "$(jq -nc \
-    --arg e "${EVENT_ID}" --arg d "${EDGE_DEVICE_ID}" --arg p "${OBSERVATION_POINT_ID}" \
-    --arg s "$(date -u -v-30S +%Y-%m-%dT%H:%M:%SZ)" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{eventId: $e, edgeDeviceId: $d, measurements: [{observationPointId: $p, windowStart: $s, windowEnd: $t, countIn: 3, countOut: 1, source: "MEASUREMENT_SOURCE_EDGE"}]}')"
-
-docker compose exec -T observation-db psql -U observation -d observation \
-    -c 'select id, verdict, optimization_result is not null as has_result from optimization_results order by id'
+docker compose run --rm runn run --verbose integration-seed.yml
 ```
 
-`date -v-30S` は macOS の書き方で、GNU date では `date -u -d '-30 seconds' ...` になる  
-`Heartbeat` を送っていない端末の計測値はサイクルで除外される
+出力の `observationPageUrl`（`http://<tenant_id>.localhost:3000/event/<event_id>/observation/<edge_device_id>`）が、その端末の観測ページになる
 
-| 段階 | 結果 |
-| --- | --- |
-| `Heartbeat` | `200` |
-| `ReportMeasurements` | `200`。`acceptedCount` が `1` |
-| 監査ログの `GetCurrentRevision`・`GetObservationPointMappings` | `caller_service=tolo-observation` の記録が `http_status=200` |
-| `optimization_results` | `ReportMeasurements` 1 回につき 1 行 |
+## 前提となる未マージの変更
 
-現状の Observation が Flow Control へ送る要求では、`optimization_results` の `verdict` は `VERDICT_SKIPPED_NO_TRIGGER` になり、`optimization_result` は空のままになる  
-Observation は履歴（`HistoryDigest`）を空で送り、観測種別を `VECTOR` に固定し、`CapacityHint` も埋めない。そのため Flow Control の急増・停滞・パンクのどのトリガーも発火しない
+runbook が成功するには、次の変更が compose の固定コミットと `go.mod` に入っている必要がある
+
+- tolo-observation #37。`OBSERVATION_PAGE_BASE_URL` を廃止し、`OBSERVATION_PAGE_URL_TEMPLATE` を必須にする
+- tolo-observation #38。`meanDetectedPeople` を受け取り、停滞量と履歴を Flow Control に送る
+- tolo-flow-control #100。RPC デッドラインが短いときに、応答を返す余裕を残して最適化する
+- Gateway の `go.mod` の tolo-observation を #38 以降に上げる。上げないと、型付きの forwarder が `meanDetectedPeople` を捨てる
+
+これらが入る前の固定コミットでは、`optimization_results` の行は保存されるが `verdict` は `VERDICT_SKIPPED_NO_TRIGGER` のままで、runbook は `maxCycles` 回の後に失敗する
