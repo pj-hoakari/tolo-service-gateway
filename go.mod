@@ -17,8 +17,8 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/pj-hoakari/internal-jwt-handling v0.2.0
 	github.com/pj-hoakari/protoc-gen-authz-go v0.3.0
-	github.com/pj-hoakari/tolo-graph-authoring v0.0.0-20261010051011-10c17cbab0ca
-	github.com/pj-hoakari/tolo-kernel-proto v0.1.0
+	github.com/pj-hoakari/tolo-graph-authoring v0.0.0-20261010135424-d3fd1332e823
+	github.com/pj-hoakari/tolo-kernel-proto v0.3.0
 	github.com/pj-hoakari/tolo-observation v0.0.0-20261010095131-93c2db64db25
 	github.com/pj-hoakari/tolo-tenant-management v0.1.0
 	go.opentelemetry.io/otel v1.47.0
