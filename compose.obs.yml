@@ -1,4 +1,8 @@
 services:
+    server:
+        networks:
+            - observation
+
     observation:
         build:
             context: https://github.com/pj-hoakari/tolo-observation.git#93c2db64db2549984acb81df81699129065d6149
@@ -11,6 +15,10 @@ services:
             INTERNAL_JWT_AUDIENCE: tolo-observation
             GRAPH_AUTHORING_URL: http://server:8090
             FLOW_CONTROL_URL: http://flow-control:8080
+        networks:
+            - observation
+            - observation-db
+            - flow-control
         depends_on:
             observation-migrate:
                 condition: service_completed_successfully
@@ -25,6 +33,8 @@ services:
             - -database
             - postgres://observation-db:5432/observation?sslmode=disable&user=observation&password=${TOLO_OBS_DB_PASSWORD:-observation}
             - up
+        networks:
+            - observation-db
         depends_on:
             observation-db:
                 condition: service_healthy
@@ -36,6 +46,8 @@ services:
             POSTGRES_DB: observation
             POSTGRES_USER: observation
             POSTGRES_PASSWORD: ${TOLO_OBS_DB_PASSWORD:-observation}
+        networks:
+            - observation-db
         healthcheck:
             test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
             interval: 5s
@@ -47,3 +59,11 @@ services:
 
 volumes:
     observation-data:
+
+networks:
+    observation:
+        internal: true
+    observation-db:
+        internal: true
+    flow-control:
+        internal: true

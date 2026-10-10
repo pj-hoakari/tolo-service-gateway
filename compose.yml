@@ -42,6 +42,9 @@ services:
             - internal-jwt-keys:/etc/tolo/keys:ro
             - idp-introspection:/etc/tolo/idp:ro
             - ./config/compose/destinations.json:/etc/tolo/gateway/destinations.json:ro
+        networks:
+            - idp
+            - testbackend
         depends_on:
             keygen:
                 condition: service_completed_successfully
@@ -62,6 +65,8 @@ services:
             - "8082:8080"
         volumes:
             - idp-introspection:/etc/tolo/idp:ro
+        networks:
+            - idp
         depends_on:
             keygen:
                 condition: service_completed_successfully
@@ -75,8 +80,8 @@ services:
             INTERNAL_JWKS_URL: http://server:8080/.well-known/jwks.json
             INTERNAL_JWT_ISSUER: service-gateway
             INTERNAL_JWT_AUDIENCE: tolo-testbackend
-        ports:
-            - "8081:8080"
+        networks:
+            - testbackend
         depends_on:
             server:
                 condition: service_started
@@ -84,3 +89,8 @@ services:
 volumes:
     internal-jwt-keys:
     idp-introspection:
+
+networks:
+    idp:
+    testbackend:
+        internal: true

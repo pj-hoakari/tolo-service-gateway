@@ -1,4 +1,8 @@
 services:
+    server:
+        networks:
+            - graph-authoring
+
     graph-authoring:
         build:
             context: https://github.com/pj-hoakari/tolo-graph-authoring.git#10c17cbab0cad12916c6740eb15f1e08eb1c80aa
@@ -9,6 +13,9 @@ services:
             INTERNAL_JWT_ISSUER: service-gateway
             INTERNAL_JWT_AUDIENCE: tolo-graph-authoring
             TENANT_MANAGEMENT_URL: http://server:8090
+        networks:
+            - graph-authoring
+            - graph-authoring-db
         depends_on:
             graph-authoring-migrate:
                 condition: service_completed_successfully
@@ -23,6 +30,8 @@ services:
             - -database
             - postgres://graph-authoring-db:5432/graph_authoring?sslmode=disable&user=graph_authoring&password=${TOLO_GA_DB_PASSWORD:-graph_authoring}
             - up
+        networks:
+            - graph-authoring-db
         depends_on:
             graph-authoring-db:
                 condition: service_healthy
@@ -34,6 +43,8 @@ services:
             POSTGRES_DB: graph_authoring
             POSTGRES_USER: graph_authoring
             POSTGRES_PASSWORD: ${TOLO_GA_DB_PASSWORD:-graph_authoring}
+        networks:
+            - graph-authoring-db
         healthcheck:
             test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
             interval: 5s
@@ -45,3 +56,9 @@ services:
 
 volumes:
     graph-authoring-data:
+
+networks:
+    graph-authoring:
+        internal: true
+    graph-authoring-db:
+        internal: true
