@@ -1,0 +1,16 @@
+services:
+    flow-control:
+        build:
+            context: https://github.com/pj-hoakari/tolo-flow-control.git#375c95572dd06f9829797163b33c646f7eca5756
+        environment:
+            PORT: "8080"
+            TOLO_RPC_MAX_REQUEST_BYTES: "8388608"
+            TOLO_RPC_MAX_EXECUTION_SEC: "720"
+        read_only: true
+        tmpfs:
+            - /tmp
+
+    observation:
+        depends_on:
+            flow-control:
+                condition: service_started
