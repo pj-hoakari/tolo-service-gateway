@@ -12,6 +12,12 @@
 /tolo.graph.v1.GraphSupplyService/GetGatePoints	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.graph.v1.GraphSupplyService/GetObservationPointMappings	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.graph.v1.GraphSupplyService/GetQrLocations	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
+/tolo.observation.v1.EdgeDeviceService/Heartbeat	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.report	introspection=false
+/tolo.observation.v1.EdgeDeviceService/ListEdgeDevices	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
+/tolo.observation.v1.EdgeDeviceService/RegisterEdgeDevice	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
+/tolo.observation.v1.EdgeDeviceService/UnregisterEdgeDevice	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
+/tolo.observation.v1.EdgeDeviceService/UpdateObservationPointConfig	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.operate	introspection=false
+/tolo.observation.v1.MeasurementIngestService/ReportMeasurements	destination=tolo-observation	anonymous=false	external=event_access	service=true	scopes=events.report	introspection=false
 /tolo.relation.v1.RelationAdminService/AddTenantMember	destination=tolo-tenant-management	anonymous=false	external=tenant_access	service=false	scopes=tenant.write	introspection=true
 /tolo.relation.v1.RelationAdminService/ChangeTenantRole	destination=tolo-tenant-management	anonymous=false	external=tenant_access	service=false	scopes=tenant.write	introspection=true
 /tolo.relation.v1.RelationAdminService/GrantEventRole	destination=tolo-tenant-management	anonymous=false	external=tenant_access	service=false	scopes=tenant.write	introspection=true

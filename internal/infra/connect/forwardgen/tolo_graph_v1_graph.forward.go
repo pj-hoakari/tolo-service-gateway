@@ -7,7 +7,7 @@ import (
 	context "context"
 	v1 "github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1"
 	graphv1connect "github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
-	v11 "github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/kernel/v1"
+	v11 "github.com/pj-hoakari/tolo-kernel-proto/gen/tolo/kernel/v1"
 	forward "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 )
 

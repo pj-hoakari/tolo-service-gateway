@@ -5,6 +5,7 @@ package forwardgen
 import (
 	connect "connectrpc.com/connect"
 	graphv1connect "github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
+	observationv1connect "github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1/observationv1connect"
 	greetv1connect "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
 	forward "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	relationv1connect "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1/relationv1connect"
@@ -37,6 +38,24 @@ func Mounts() []forward.Mount {
 			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
 				return graphv1connect.NewGraphSupplyServiceHandler(
 					&toloGraphV1GraphSupplyServiceForwarder{client: graphv1connect.NewGraphSupplyServiceClient(httpClient, baseURL, clientOptions...)},
+					handlerOptions...,
+				)
+			},
+		},
+		{
+			Service: observationv1connect.EdgeDeviceServiceName,
+			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
+				return observationv1connect.NewEdgeDeviceServiceHandler(
+					&toloObservationV1EdgeDeviceServiceForwarder{client: observationv1connect.NewEdgeDeviceServiceClient(httpClient, baseURL, clientOptions...)},
+					handlerOptions...,
+				)
+			},
+		},
+		{
+			Service: observationv1connect.MeasurementIngestServiceName,
+			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
+				return observationv1connect.NewMeasurementIngestServiceHandler(
+					&toloObservationV1MeasurementIngestServiceForwarder{client: observationv1connect.NewMeasurementIngestServiceClient(httpClient, baseURL, clientOptions...)},
 					handlerOptions...,
 				)
 			},
