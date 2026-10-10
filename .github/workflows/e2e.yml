@@ -78,14 +78,9 @@ jobs:
               if: steps.changes.outputs.changed == 'true'
               run: ./scripts/dev/observation-measurement-check.sh
 
-            - name: Verify the internal listener is not published
+            - name: Verify the network reachability
               if: steps.changes.outputs.changed == 'true'
-              run: |
-                  set -euo pipefail
-                  if docker compose port server 8090 >/dev/null 2>&1; then
-                    echo "::error::Gateway の内部用 listener がホストへ公開されています"
-                    exit 1
-                  fi
+              run: ./scripts/dev/compose-reachability-check.sh
 
             - name: Verify no token appears in the gateway log
               if: steps.changes.outputs.changed == 'true'
