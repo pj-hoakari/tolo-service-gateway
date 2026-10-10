@@ -6,12 +6,12 @@ vars:
   ownerSub: user-owner
   clientId: client-123
   nodes:
-    - {nodeId: gate, nodeType: NODE_TYPE_BOUNDARY, labels: {ja: gate}, layout: {x: 0, y: 100}}
+    - {nodeId: gate, nodeType: NODE_TYPE_TRANSIT_ONLY, labels: {ja: gate}, layout: {x: 0, y: 100}}
     - {nodeId: j1, nodeType: NODE_TYPE_TRANSIT_ONLY, labels: {ja: j1}, layout: {x: 100, y: 100}}
     - {nodeId: hallA, nodeType: NODE_TYPE_GOAL_TRANSIT_MIXED, labels: {ja: hallA}, layout: {x: 200, y: 200}}
     - {nodeId: hallB, nodeType: NODE_TYPE_GOAL_TRANSIT_MIXED, labels: {ja: hallB}, layout: {x: 200, y: 0}}
     - {nodeId: j2, nodeType: NODE_TYPE_TRANSIT_ONLY, labels: {ja: j2}, layout: {x: 300, y: 100}}
-    - {nodeId: out, nodeType: NODE_TYPE_BOUNDARY, labels: {ja: out}, layout: {x: 400, y: 100}}
+    - {nodeId: out, nodeType: NODE_TYPE_TRANSIT_ONLY, labels: {ja: out}, layout: {x: 400, y: 100}}
   edges:
     - {edgeId: e-in-j1, sourceNodeId: gate, targetNodeId: j1, direction: EDGE_DIRECTION_BOTH_WAYS}
     - {edgeId: e-j1-hallA, sourceNodeId: j1, targetNodeId: hallA, direction: EDGE_DIRECTION_BOTH_WAYS}
@@ -20,6 +20,12 @@ vars:
     - {edgeId: e-hallB-j2, sourceNodeId: hallB, targetNodeId: j2, direction: EDGE_DIRECTION_BOTH_WAYS}
     - {edgeId: e-j1-j2, sourceNodeId: j1, targetNodeId: j2, direction: EDGE_DIRECTION_BOTH_WAYS}
     - {edgeId: e-j2-out, sourceNodeId: j2, targetNodeId: out, direction: EDGE_DIRECTION_BOTH_WAYS}
+  externalNodes:
+    - {nodeId: outside-gate, nodeType: NODE_TYPE_EXTERNAL, labels: {ja: outside-gate}, layout: {x: -100, y: 100}}
+    - {nodeId: outside-out, nodeType: NODE_TYPE_EXTERNAL, labels: {ja: outside-out}, layout: {x: 500, y: 100}}
+  externalEdges:
+    - {edgeId: x-gate, sourceNodeId: outside-gate, targetNodeId: gate, direction: EDGE_DIRECTION_BOTH_WAYS}
+    - {edgeId: x-out, sourceNodeId: out, targetNodeId: outside-out, direction: EDGE_DIRECTION_BOTH_WAYS}
 steps:
   startTenant:
     gw:
@@ -99,8 +105,8 @@ steps:
             application/json:
               eventId: "{{ steps.createEvent.res.body.event.eventId }}"
               document:
-                nodes: "{{ vars.nodes }}"
-                edges: "{{ vars.edges }}"
+                nodes: "{{ concat(vars.nodes, vars.externalNodes) }}"
+                edges: "{{ concat(vars.edges, vars.externalEdges) }}"
     test: current.res.status == 200
   publishRevision:
     gw:

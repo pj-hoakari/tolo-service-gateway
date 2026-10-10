@@ -53,10 +53,12 @@ runbook は次の 3 つに分かれる
 4. `RegisterEdgeDevice`（ルートごとに観測点を 1 つ、計 7 つ）
 5. `MapObservationPoint`（各観測点を `anchor.routeId` で同名のルートに紐づける）
 
-グラフは迂回路のある会場の形で、ノードは `gate`・`j1`・`hallA`・`hallB`・`j2`・`out` の 6 つ、ルートはすべて `EDGE_DIRECTION_BOTH_WAYS` の 7 本になる
+グラフは迂回路のある会場の形で、ノードは `gate`・`j1`・`hallA`・`hallB`・`j2`・`out` の 6 つ、ルートはすべて `EDGE_DIRECTION_BOTH_WAYS` の 7 本になる  
+`gate` と `out` は外部ポイント `outside-gate`・`outside-out` と両通行のエッジで結ばれ、入退場の入退出点になる
 
 ```mermaid
 flowchart LR
+    outside-gate -- x-gate --- gate
     gate -- e-in-j1 --- j1
     j1 -- e-j1-hallA --- hallA
     j1 -- e-j1-hallB --- hallB
@@ -64,6 +66,7 @@ flowchart LR
     hallA -- e-hallA-j2 --- j2
     hallB -- e-hallB-j2 --- j2
     j2 -- e-j2-out --- out
+    out -- x-out --- outside-out
 ```
 
 `integration-proposal.yml` は、seed の後に `events.report` の `event_access` トークンを取り、`integration-cycle.yml` を最大 `maxCycles`（既定 30）回繰り返す  

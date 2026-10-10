@@ -63,10 +63,14 @@ call tolo.graph.v1.GraphAuthoringService/SaveGraph "$(jq -nc --arg e "${event_id
     eventId: $e,
     document: {
         nodes: [
-            {nodeId: "gate", nodeType: "NODE_TYPE_BOUNDARY", labels: {ja: "入場ゲート"}, layout: {x: 0, y: 0}},
+            {nodeId: "outside", nodeType: "NODE_TYPE_EXTERNAL", labels: {ja: "会場の外"}, layout: {x: -120, y: 0}},
+            {nodeId: "gate", nodeType: "NODE_TYPE_TRANSIT_ONLY", labels: {ja: "入場ゲート"}, layout: {x: 0, y: 0}},
             {nodeId: "hall", nodeType: "NODE_TYPE_GOAL", labels: {ja: "ホール"}, layout: {x: 120, y: 0}}
         ],
-        edges: [{edgeId: "gate-hall", sourceNodeId: "gate", targetNodeId: "hall", direction: "EDGE_DIRECTION_ONE_WAY"}]
+        edges: [
+            {edgeId: "outside-gate", sourceNodeId: "outside", targetNodeId: "gate", direction: "EDGE_DIRECTION_ONE_WAY"},
+            {edgeId: "gate-hall", sourceNodeId: "gate", targetNodeId: "hall", direction: "EDGE_DIRECTION_ONE_WAY"}
+        ]
     }
 }')" "${manage_token}"
 expect 200
