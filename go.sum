@@ -29,8 +29,8 @@ github.com/pj-hoakari/tolo-graph-authoring v0.0.0-20261010051011-10c17cbab0ca h1
 github.com/pj-hoakari/tolo-graph-authoring v0.0.0-20261010051011-10c17cbab0ca/go.mod h1:4i3LegT3Vvm/BkHZQsiAW+eYs0aZVnPpFs5sYP3/aic=
 github.com/pj-hoakari/tolo-kernel-proto v0.1.0 h1:pyH9v+B4T/tCzCOoKqPiDRAdfF4wzeKhpeMhIca948c=
 github.com/pj-hoakari/tolo-kernel-proto v0.1.0/go.mod h1:dH46KE1uBX0a+aL4VYDFYvdkuNPTmbFWcB6B/xjvekQ=
-github.com/pj-hoakari/tolo-observation v0.0.0-20261010051321-afe7e2a8773a h1:/L/GYUePVQdDLNhlgOO8nUUmfAmj7LOjzGAU2h5Hd90=
-github.com/pj-hoakari/tolo-observation v0.0.0-20261010051321-afe7e2a8773a/go.mod h1:lIn+nUc+6FkSvAlTDr0pHDQeBU5u1/kJh6xpwaPPrJs=
+github.com/pj-hoakari/tolo-observation v0.0.0-20261010095131-93c2db64db25 h1:ki+7HCB7Q8DS4AzCXbbgy1jxZn6j5P45p5IfGD1VJOc=
+github.com/pj-hoakari/tolo-observation v0.0.0-20261010095131-93c2db64db25/go.mod h1:lIn+nUc+6FkSvAlTDr0pHDQeBU5u1/kJh6xpwaPPrJs=
 github.com/pj-hoakari/tolo-tenant-management v0.1.0 h1:5o0gAMq+JeagEKZ58kVexKcxRQRv99LNUFhJR3c5YFA=
 github.com/pj-hoakari/tolo-tenant-management v0.1.0/go.mod h1:CHRHAGcl4efAoF8edlgfSFgBfRLfK3AvgjNZw5eisDU=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=

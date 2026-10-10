@@ -1,7 +1,7 @@
 services:
     flow-control:
         build:
-            context: https://github.com/pj-hoakari/tolo-flow-control.git#375c95572dd06f9829797163b33c646f7eca5756
+            context: https://github.com/pj-hoakari/tolo-flow-control.git#af65c83597b3a2614532b784409493136b77680a
         environment:
             PORT: "8080"
             TOLO_RPC_MAX_REQUEST_BYTES: "8388608"

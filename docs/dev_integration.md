@@ -89,14 +89,3 @@ docker compose run --rm runn run --verbose integration-seed.yml
 ```
 
 出力の `observationPageUrl`（`http://<tenant_id>.localhost:3000/event/<event_id>/observation/<edge_device_id>`）が、その端末の観測ページになる
-
-## 前提となる未マージの変更
-
-runbook が成功するには、次の変更が compose の固定コミットと `go.mod` に入っている必要がある
-
-- tolo-observation #37。`OBSERVATION_PAGE_BASE_URL` を廃止し、`OBSERVATION_PAGE_URL_TEMPLATE` を必須にする
-- tolo-observation #38。`meanDetectedPeople` を受け取り、停滞量と履歴を Flow Control に送る
-- tolo-flow-control #100。RPC デッドラインが短いときに、応答を返す余裕を残して最適化する
-- Gateway の `go.mod` の tolo-observation を #38 以降に上げる。上げないと、型付きの forwarder が `meanDetectedPeople` を捨てる
-
-これらが入る前の固定コミットでは、`optimization_results` の行は保存されるが `verdict` は `VERDICT_SKIPPED_NO_TRIGGER` のままで、runbook は `maxCycles` 回の後に失敗する
