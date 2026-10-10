@@ -1,4 +1,8 @@
 services:
+    server:
+        networks:
+            - tenant-management
+
     tenant-management:
         image: ${TOLO_TM_IMAGE:-ghcr.io/pj-hoakari/tolo-tenant-management:0.1.0@sha256:5e8d85d73d5e2c01ca417cef1ee8464667c2b2884de3f4872bc5217399e6ec3c}
         environment:
@@ -7,6 +11,9 @@ services:
             INTERNAL_JWKS_URL: http://server:8080/.well-known/jwks.json
             INTERNAL_JWT_ISSUER: service-gateway
             INTERNAL_JWT_AUDIENCE: tolo-tenant-management
+        networks:
+            - tenant-management
+            - tenant-management-db
         depends_on:
             tenant-management-migrate:
                 condition: service_completed_successfully
@@ -19,6 +26,8 @@ services:
             - -database
             - postgres://tenant-management-db:5432/tenant_management?sslmode=disable&user=tenant_management&password=${TOLO_TM_DB_PASSWORD:-tenant_management}
             - up
+        networks:
+            - tenant-management-db
         depends_on:
             tenant-management-db:
                 condition: service_healthy
@@ -30,6 +39,8 @@ services:
             POSTGRES_DB: tenant_management
             POSTGRES_USER: tenant_management
             POSTGRES_PASSWORD: ${TOLO_TM_DB_PASSWORD:-tenant_management}
+        networks:
+            - tenant-management-db
         healthcheck:
             test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
             interval: 5s
@@ -41,3 +52,9 @@ services:
 
 volumes:
     tenant-management-data:
+
+networks:
+    tenant-management:
+        internal: true
+    tenant-management-db:
+        internal: true

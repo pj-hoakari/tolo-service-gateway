@@ -9,6 +9,8 @@ services:
         read_only: true
         tmpfs:
             - /tmp
+        networks:
+            - flow-control
 
     observation:
         depends_on:
@@ -25,6 +27,9 @@ services:
             OBSERVATION_DB_DSN: postgres://observation-db:5432/observation?sslmode=disable&user=observation&password=${TOLO_OBS_DB_PASSWORD:-observation}
         volumes:
             - ./scripts/dev/runbooks:/books:ro
+        networks:
+            - idp
+            - observation-db
         depends_on:
             server:
                 condition: service_started

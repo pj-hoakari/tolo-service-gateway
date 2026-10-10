@@ -32,7 +32,10 @@ task up:build
 鍵を作り直すには `docker compose down -v` でボリュームごと削除してから起動し直す
 
 `server` は `TOLO_GATEWAY_LISTENER_MODE=split` で、公開用（8080）と内部用（8090）の 2 つの listener を起動する（停止は `task down`）  
-ホストへ公開するのは公開用の `http://localhost:8080` だけで、内部用の 8090 はホストへ公開せず、compose ネットワーク内の `http://server:8090` でだけ届く  
+ホストへ公開するのは公開用の `http://localhost:8080` だけで、内部用の 8090 はホストへ公開せず、`server` とネットワークを共有するサービスから `http://server:8090` でだけ届く  
+`server` と後段のサービスは後段ごとに分けたネットワークで 1 対 1 につながり、後段どうしや DB から `server` へは届かない  
+後段と DB のネットワークは `internal: true` で、ホストへの公開と外部への通信を持たない  
+この到達範囲は `scripts/dev/compose-reachability-check.sh` で確かめられ、e2e workflow でも実行する  
 公開用の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）・公開 JWKS と、匿名で呼べる業務 RPC になる  
 `/healthz` はプロセスが応答できる限り 200 を返す  
 `/readyz` は登録された準備チェックがすべて成功したときだけ 200 を返し、1 つでも失敗すれば 503 を返す（失敗の内容は応答本文には出さず、サーバー側のログにだけ記録する）  
@@ -107,7 +110,7 @@ trace-id は OTLP のエクスポート設定が無くても採番され、後�
 n が 1 以上なら、すべての `X-Forwarded-For` の値を出現順に並べた列の右から n 番目を採り、要素が足りない場合や IP アドレスでない場合は接続元アドレスへ戻す  
 `Forwarded`・`X-Real-Ip` などほかの転送ヘッダは読まない
 
-`testbackend`（`http://localhost:8081`）は `server` の JWKS を取得して内部 JWT を検証するテスト用の後段サービスで、`jwtgen` で作った JWKS を配る手順の代わりになる  
+`testbackend` は `server` の JWKS を取得して内部 JWT を検証するテスト用の後段サービスで、`jwtgen` で作った JWKS を配る手順の代わりになる  
 `greet.v1.GreetService/Greet` は内部 JWT を要求するが、`greet.v1.GreetService/Ping` は匿名で呼べる  
 `Ping` は Gateway 経由で通り、`Greet` は外部トークンを付けたときだけ通る（後述「外部トークンの検証」）  
 Tenant Management は compose にコンテナが無いため、匿名で呼べる `StartTenantRegistration` も宛先不達の `unavailable` になる
