@@ -31,8 +31,8 @@ github.com/pj-hoakari/tolo-kernel-proto v0.3.0 h1:oxeN+b7GKggyY9IAiJ6QWrMNbRgh6D
 github.com/pj-hoakari/tolo-kernel-proto v0.3.0/go.mod h1:dH46KE1uBX0a+aL4VYDFYvdkuNPTmbFWcB6B/xjvekQ=
 github.com/pj-hoakari/tolo-observation v0.0.0-20261012022820-f289ed7bee29 h1:kH+GWgFt3xB7cV6u/E9wTJHALuLklzlG8eUzYCORiJs=
 github.com/pj-hoakari/tolo-observation v0.0.0-20261012022820-f289ed7bee29/go.mod h1:2i0fGiatxR/Ps5EGa9woCt2sAprBLZCdzE6u99mmeGE=
-github.com/pj-hoakari/tolo-tenant-management v0.1.1-0.20261012023053-1f960bc8a3eb h1:E2Dhj1Ldd+pSeDdxPqO8JH/eGiCPYr5G5twVxU95vKI=
-github.com/pj-hoakari/tolo-tenant-management v0.1.1-0.20261012023053-1f960bc8a3eb/go.mod h1:ezcJ7HAHouLnlqDvzfBglOmtIRljFz9EeuVVs8qU3yQ=
+github.com/pj-hoakari/tolo-tenant-management v0.1.1-0.20261012023405-cfab0ec29147 h1:RWF3hn27oG28Wh9nosPcGMzBtBZ5QsACFKTA//YE3Wo=
+github.com/pj-hoakari/tolo-tenant-management v0.1.1-0.20261012023405-cfab0ec29147/go.mod h1:ezcJ7HAHouLnlqDvzfBglOmtIRljFz9EeuVVs8qU3yQ=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
