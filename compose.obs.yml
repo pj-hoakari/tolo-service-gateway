@@ -5,7 +5,7 @@ services:
 
     observation:
         build:
-            context: https://github.com/pj-hoakari/tolo-observation.git#f289ed7bee299433dcbe01b2c9e7585e6e6d1aab
+            context: https://github.com/pj-hoakari/tolo-observation.git#e46e86804f56fc41d01597c6c757c58475272be3
         environment:
             SERVER_ADDR: :8080
             DATABASE_URL: postgres://observation-db:5432/observation?sslmode=disable&user=observation&password=${TOLO_OBS_DB_PASSWORD:-observation}
@@ -27,7 +27,7 @@ services:
 
     observation-migrate:
         build:
-            context: https://github.com/pj-hoakari/tolo-observation.git#f289ed7bee299433dcbe01b2c9e7585e6e6d1aab
+            context: https://github.com/pj-hoakari/tolo-observation.git#e46e86804f56fc41d01597c6c757c58475272be3
             target: migrate
         command:
             - -database
