@@ -77,7 +77,7 @@ expect 200
 
 owner_token="$(token -k tenant_access -b "${OWNER_SUB}" -t "${tenant_id}" -s 'tenant.read tenant.write events.read events.manage')"
 call tolo.tenant.v1.TenantService/CreateEvent \
-    "$(jq -nc --arg t "${tenant_id}" '{tenantId: $t, name: "graph-expo", type: "EVENT_TYPE_SHORT_TERM"}')" \
+    "$(jq -nc --arg t "${tenant_id}" '{tenantId: $t, name: "graph-expo"}')" \
     "${owner_token}"
 expect 200
 event_id="$(printf '%s' "${body}" | jq -r '.event.eventId')"

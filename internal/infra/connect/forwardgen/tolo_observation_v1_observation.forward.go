@@ -41,3 +41,15 @@ func (f *toloObservationV1EdgeDeviceServiceForwarder) Heartbeat(ctx context.Cont
 func (f *toloObservationV1EdgeDeviceServiceForwarder) UpdateObservationPointConfig(ctx context.Context, req *connect.Request[v1.UpdateObservationPointConfigRequest]) (*connect.Response[v1.UpdateObservationPointConfigResponse], error) {
 	return forward.Unary(ctx, req, f.client.UpdateObservationPointConfig)
 }
+
+type toloObservationV1ObservationSettingsServiceForwarder struct {
+	client observationv1connect.ObservationSettingsServiceClient
+}
+
+func (f *toloObservationV1ObservationSettingsServiceForwarder) GetObservationSettings(ctx context.Context, req *connect.Request[v1.GetObservationSettingsRequest]) (*connect.Response[v1.GetObservationSettingsResponse], error) {
+	return forward.Unary(ctx, req, f.client.GetObservationSettings)
+}
+
+func (f *toloObservationV1ObservationSettingsServiceForwarder) UpdateObservationSettings(ctx context.Context, req *connect.Request[v1.UpdateObservationSettingsRequest]) (*connect.Response[v1.UpdateObservationSettingsResponse], error) {
+	return forward.Unary(ctx, req, f.client.UpdateObservationSettings)
+}

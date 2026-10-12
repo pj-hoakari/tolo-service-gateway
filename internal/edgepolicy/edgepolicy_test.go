@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	getEventProcedure               = "/tolo.tenant.v1.TenantService/GetEvent"
-	getObservationSettingsProcedure = "/tolo.tenant.v1.TenantService/GetObservationSettings"
-	listEventsProcedure             = "/tolo.tenant.v1.TenantService/ListEvents"
-	unknownProcedure                = "/tolo.tenant.v1.TenantService/Unknown"
+	getEventProcedure    = "/tolo.tenant.v1.TenantService/GetEvent"
+	getMappingsProcedure = "/tolo.graph.v1.GraphSupplyService/GetObservationPointMappings"
+	listEventsProcedure  = "/tolo.tenant.v1.TenantService/ListEvents"
+	unknownProcedure     = "/tolo.tenant.v1.TenantService/Unknown"
 
 	graphAuthoring   = "tolo-graph-authoring"
 	observation      = "tolo-observation"
@@ -51,7 +51,7 @@ func TestBuildAcceptsDeclaredEdges(t *testing.T) {
 	edges := []edgepolicy.Edge{
 		{
 			Caller:              observation,
-			Procedure:           getObservationSettingsProcedure,
+			Procedure:           getMappingsProcedure,
 			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess, internaljwt.TokenUseService},
 			MachineChain:        true,
 			NewMachineOrigin:    true,
@@ -172,7 +172,7 @@ func TestBuildReportsEveryInvalidEdge(t *testing.T) {
 	edges := []edgepolicy.Edge{
 		userOriginEdge("", getEventProcedure, internaljwt.TokenUseEventAccess),
 		userOriginEdge(graphAuthoring, listEventsProcedure, internaljwt.TokenUseEventAccess),
-		userOriginEdge(observation, getObservationSettingsProcedure, "tenant_write"),
+		userOriginEdge(observation, getMappingsProcedure, "tenant_write"),
 	}
 
 	_, err := edgepolicy.Build(edges, buildRegistry(t))
@@ -221,7 +221,7 @@ func TestSnapshotListsEveryEdgeInOrder(t *testing.T) {
 	edges := []edgepolicy.Edge{
 		{
 			Caller:              observation,
-			Procedure:           getObservationSettingsProcedure,
+			Procedure:           getMappingsProcedure,
 			UserOriginTokenUses: nil,
 			MachineChain:        true,
 			NewMachineOrigin:    true,
@@ -241,7 +241,7 @@ func TestSnapshotListsEveryEdgeInOrder(t *testing.T) {
 	}
 
 	want := "tolo-graph-authoring\t/tolo.tenant.v1.TenantService/GetEvent\tuser_origin=event_access,service\tmachine_chain=false\tnew_machine_origin=false\n" +
-		"tolo-observation\t/tolo.tenant.v1.TenantService/GetObservationSettings\tuser_origin=-\tmachine_chain=true\tnew_machine_origin=true\n"
+		"tolo-observation\t/tolo.graph.v1.GraphSupplyService/GetObservationPointMappings\tuser_origin=-\tmachine_chain=true\tnew_machine_origin=true\n"
 
 	if got := policy.Snapshot(); got != want {
 		t.Errorf("Snapshot() = %q, want %q", got, want)

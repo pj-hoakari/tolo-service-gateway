@@ -61,6 +61,15 @@ func Mounts() []forward.Mount {
 			},
 		},
 		{
+			Service: observationv1connect.ObservationSettingsServiceName,
+			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
+				return observationv1connect.NewObservationSettingsServiceHandler(
+					&toloObservationV1ObservationSettingsServiceForwarder{client: observationv1connect.NewObservationSettingsServiceClient(httpClient, baseURL, clientOptions...)},
+					handlerOptions...,
+				)
+			},
+		},
+		{
 			Service: relationv1connect.RelationAdminServiceName,
 			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
 				return relationv1connect.NewRelationAdminServiceHandler(

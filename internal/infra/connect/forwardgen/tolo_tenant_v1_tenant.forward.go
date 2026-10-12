@@ -34,24 +34,12 @@ func (f *toloTenantV1TenantServiceForwarder) CreateEvent(ctx context.Context, re
 	return forward.Unary(ctx, req, f.client.CreateEvent)
 }
 
-func (f *toloTenantV1TenantServiceForwarder) AssignEventType(ctx context.Context, req *connect.Request[v1.AssignEventTypeRequest]) (*connect.Response[v1.AssignEventTypeResponse], error) {
-	return forward.Unary(ctx, req, f.client.AssignEventType)
-}
-
 func (f *toloTenantV1TenantServiceForwarder) TransitionEventStatus(ctx context.Context, req *connect.Request[v1.TransitionEventStatusRequest]) (*connect.Response[v1.TransitionEventStatusResponse], error) {
 	return forward.Unary(ctx, req, f.client.TransitionEventStatus)
 }
 
 func (f *toloTenantV1TenantServiceForwarder) GetEvent(ctx context.Context, req *connect.Request[v1.GetEventRequest]) (*connect.Response[v1.GetEventResponse], error) {
 	return forward.Unary(ctx, req, f.client.GetEvent)
-}
-
-func (f *toloTenantV1TenantServiceForwarder) GetObservationSettings(ctx context.Context, req *connect.Request[v1.GetObservationSettingsRequest]) (*connect.Response[v1.GetObservationSettingsResponse], error) {
-	return forward.Unary(ctx, req, f.client.GetObservationSettings)
-}
-
-func (f *toloTenantV1TenantServiceForwarder) UpdateObservationSettings(ctx context.Context, req *connect.Request[v1.UpdateObservationSettingsRequest]) (*connect.Response[v1.UpdateObservationSettingsResponse], error) {
-	return forward.Unary(ctx, req, f.client.UpdateObservationSettings)
 }
 
 func (f *toloTenantV1TenantServiceForwarder) ListEvents(ctx context.Context, req *connect.Request[v1.ListEventsRequest]) (*connect.Response[v1.ListEventsResponse], error) {

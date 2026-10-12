@@ -59,6 +59,11 @@ func Bindings() []registry.Binding {
 			Destination: observationDestination,
 			Policies:    observationv1connect.EdgeDeviceServicePolicies,
 		},
+		{
+			Service:     observationv1connect.ObservationSettingsServiceName,
+			Destination: observationDestination,
+			Policies:    observationv1connect.ObservationSettingsServicePolicies,
+		},
 	}
 }
 
@@ -82,13 +87,6 @@ func Edges() []edgepolicy.Edge {
 			Procedure:           tenantv1connect.TenantServiceGetEventProcedure,
 			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
 			MachineChain:        false,
-			NewMachineOrigin:    false,
-		},
-		{
-			Caller:              observationCaller,
-			Procedure:           tenantv1connect.TenantServiceGetObservationSettingsProcedure,
-			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
-			MachineChain:        true,
 			NewMachineOrigin:    false,
 		},
 		{

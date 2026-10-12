@@ -31,7 +31,8 @@ PostgreSQL のパスワードは `TOLO_OBS_DB_PASSWORD` で変えられる（既
 
 `scripts/dev/observation-measurement-check.sh` は、テナントの作成・所有権の取得・イベント作成・グラフの保存と公開を公開用 listener 越しに行う  
 続けて端末を登録し、その端末として `Heartbeat` と `ReportMeasurements` を呼ぶ  
-最後に Gateway の監査ログを `docker compose logs` で読み、Observation からの GraphSupply 呼び出しが成功したことを確かめる  
+Gateway の監査ログを `docker compose logs` で読み、Observation からの GraphSupply 呼び出しが成功したことを確かめる  
+最後に `event_access` トークン（scope `events.read events.manage`）で `UpdateObservationSettings` と `GetObservationSettings` を公開用 listener 越しに呼び、保存した設定値が返ることを確かめる  
 想定と違うステータスが返った段階で失敗する
 
 監査ログを読むため、compose の指定は環境変数で渡す
@@ -47,5 +48,7 @@ COMPOSE_PROJECT_NAME=toloobscheck COMPOSE_FILE=compose.yml:compose.tm.yml:compos
 | `Heartbeat` | `200` |
 | `ReportMeasurements` | `200`。`acceptedCount` が `1` |
 | 監査ログの `GetCurrentRevision`・`GetObservationPointMappings` | `caller_service=tolo-observation` の記録が `http_status=200` |
+| `UpdateObservationSettings` | `200` |
+| `GetObservationSettings` | `200`。`historyWindowDays` が `14`、`eventType` が `EVENT_TYPE_LONG_TERM` |
 
 この確認は GitHub Actions の `E2E` でも、Graph Authoring の確認の後に走る

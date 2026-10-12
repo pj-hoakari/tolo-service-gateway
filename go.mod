@@ -19,8 +19,8 @@ require (
 	github.com/pj-hoakari/protoc-gen-authz-go v0.3.0
 	github.com/pj-hoakari/tolo-graph-authoring v0.0.0-20261010135424-d3fd1332e823
 	github.com/pj-hoakari/tolo-kernel-proto v0.3.0
-	github.com/pj-hoakari/tolo-observation v0.0.0-20261011101105-66f6c7693912
-	github.com/pj-hoakari/tolo-tenant-management v0.1.0
+	github.com/pj-hoakari/tolo-observation v0.0.0-20261012031059-e46e86804f56
+	github.com/pj-hoakari/tolo-tenant-management v0.1.1-0.20261012023405-cfab0ec29147
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
@@ -45,7 +45,7 @@ require (
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
-	golang.org/x/tools v0.50.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/grpc v1.83.2 // indirect

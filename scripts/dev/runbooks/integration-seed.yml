@@ -80,7 +80,6 @@ steps:
             application/json:
               tenantId: "{{ steps.startTenant.res.body.tenant.tenantId }}"
               name: integration-venue
-              type: EVENT_TYPE_SHORT_TERM
     test: current.res.status == 200
   manageToken:
     idp:

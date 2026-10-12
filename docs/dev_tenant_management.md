@@ -101,12 +101,12 @@ curl -sS -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $
 
 TOKEN=$(./scripts/dev/fakeidp-token.sh -k tenant_access -b user-owner -t "$TID")
 curl -sS -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
-    -d "{\"tenantId\":\"$TID\",\"name\":\"spring-expo\",\"type\":\"EVENT_TYPE_SHORT_TERM\"}" \
+    -d "{\"tenantId\":\"$TID\",\"name\":\"spring-expo\"}" \
     http://localhost:8080/tolo.tenant.v1.TenantService/CreateEvent
 ```
 
-Connect の JSON は lowerCamelCase になる（`tenantId`・`ownershipClaimToken`・`historyWindowDays` など）  
-enum は `EVENT_TYPE_SHORT_TERM`・`ROLE_STAFF` のような完全な名前の文字列で渡す  
+Connect の JSON は lowerCamelCase になる（`tenantId`・`ownershipClaimToken`・`contractPlan` など）  
+enum は `ROLE_STAFF` のような完全な名前の文字列で渡す  
 `ClaimTenantOwnership` は `token_use=registration` を要求し、`registration` のトークンは `tenant_id` を持たない  
 対象のテナントはリクエストの `tenantId` と一回限りの `ownershipClaimToken` で指定する
 
@@ -120,9 +120,7 @@ enum は `EVENT_TYPE_SHORT_TERM`・`ROLE_STAFF` のような完全な名前の�
 | `TenantService/ClaimTenantOwnership` | `tenant.claim`（`registration`） | `200`。`ownershipState` が `OWNED` になる |
 | `TenantService/ChangeTenantContract` | `tenant.write` | `200` |
 | `TenantService/CreateEvent` | `events.manage` | `200` |
-| `TenantService/AssignEventType` | `events.manage` | `200` |
 | `TenantService/TransitionEventStatus` | `events.manage` | `200` |
-| `TenantService/UpdateObservationSettings` | `events.manage` | `200` |
 | `TenantService/ListEvents` | `events.read` | `200` |
 | `TenantService/ArchiveTenant` | `tenant.write` | `200` |
 | `RelationAdminService/AddTenantMember` | `tenant.write` | `200` |
@@ -130,7 +128,7 @@ enum は `EVENT_TYPE_SHORT_TERM`・`ROLE_STAFF` のような完全な名前の�
 | `RelationAdminService/GrantEventRole` | `tenant.write` | `200` |
 | `RelationAdminService/RevokeRole` | `tenant.write` | `200` |
 | `RelationAdminService/ListMemberships` | `tenant.read` | `200` |
-| `TenantService/GetEvent`・`GetObservationSettings` | — | `403 permission_denied`（監査 `internal_only`） |
+| `TenantService/GetEvent` | — | `403 permission_denied`（監査 `internal_only`） |
 
 拒否の出どころは 2 つあり、監査ログの `failure_reason` で見分けられる
 
