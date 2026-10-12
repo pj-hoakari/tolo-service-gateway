@@ -18,6 +18,8 @@ import (
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
 	"github.com/pj-hoakari/internal-jwt-handling/verifier"
+	graphv1 "github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1"
+	"github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
 	tenantv1 "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1/tenantv1connect"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -55,17 +57,23 @@ func (s upstreamTenantService) GetEvent(_ context.Context, req *connectrpc.Reque
 	return connectrpc.NewResponse(&tenantv1.GetEventResponse{}), nil
 }
 
-func (s upstreamTenantService) GetObservationSettings(
+type upstreamGraphSupplyService struct {
+	graphv1connect.UnimplementedGraphSupplyServiceHandler
+	calls chan http.Header
+}
+
+func (s upstreamGraphSupplyService) GetObservationPointMappings(
 	_ context.Context,
-	req *connectrpc.Request[tenantv1.GetObservationSettingsRequest],
-) (*connectrpc.Response[tenantv1.GetObservationSettingsResponse], error) {
+	req *connectrpc.Request[graphv1.GetMappingsRequest],
+) (*connectrpc.Response[graphv1.GetMappingsResponse], error) {
 	s.calls <- req.Header().Clone()
 
-	return connectrpc.NewResponse(&tenantv1.GetObservationSettingsResponse{}), nil
+	return connectrpc.NewResponse(&graphv1.GetMappingsResponse{}), nil
 }
 
 type serviceFixture struct {
 	tenants  tenantv1connect.TenantServiceClient
+	graphs   graphv1connect.GraphSupplyServiceClient
 	issuer   *issuer.Issuer
 	backend  *verifier.ContextVerifier
 	upstream chan http.Header
@@ -114,6 +122,10 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 		UnimplementedTenantServiceHandler: tenantv1connect.UnimplementedTenantServiceHandler{},
 		calls:                             calls,
 	}))
+	mux.Handle(graphv1connect.NewGraphSupplyServiceHandler(upstreamGraphSupplyService{
+		UnimplementedGraphSupplyServiceHandler: graphv1connect.UnimplementedGraphSupplyServiceHandler{},
+		calls:                                  calls,
+	}))
 
 	upstream := httptest.NewServer(mux)
 	t.Cleanup(upstream.Close)
@@ -151,6 +163,7 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 
 	return serviceFixture{
 		tenants:  tenantv1connect.NewTenantServiceClient(gateway.Client(), gateway.URL),
+		graphs:   graphv1connect.NewGraphSupplyServiceClient(gateway.Client(), gateway.URL),
 		issuer:   gatewayIssuer,
 		backend:  contexts,
 		upstream: calls,
@@ -194,7 +207,7 @@ func (f serviceFixture) machineOriginFor(t *testing.T, audience string) issuer.I
 	return issued
 }
 
-func (f serviceFixture) forwarded(t *testing.T) (http.Header, internaljwt.Claims) {
+func (f serviceFixture) forwarded(t *testing.T, audience string) (http.Header, internaljwt.Claims) {
 	t.Helper()
 
 	var header http.Header
@@ -205,7 +218,7 @@ func (f serviceFixture) forwarded(t *testing.T) (http.Header, internaljwt.Claims
 		t.Fatal("the upstream was not called")
 	}
 
-	claims, err := f.backend.Verify(t.Context(), strings.TrimPrefix(header.Get("Authorization"), "Bearer "), tenantManagement)
+	claims, err := f.backend.Verify(t.Context(), strings.TrimPrefix(header.Get("Authorization"), "Bearer "), audience)
 	if err != nil {
 		t.Fatalf("the upstream could not verify the forwarded token: %v", err)
 	}
@@ -234,15 +247,15 @@ func getEvent(t *testing.T, f serviceFixture, header map[string]string) error {
 	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
 }
 
-func getObservationSettings(t *testing.T, f serviceFixture, header map[string]string) error {
+func getObservationPointMappings(t *testing.T, f serviceFixture, header map[string]string) error {
 	t.Helper()
 
-	req := connectrpc.NewRequest(&tenantv1.GetObservationSettingsRequest{EventId: contextEventID})
+	req := connectrpc.NewRequest(&graphv1.GetMappingsRequest{EventId: contextEventID})
 	for key, value := range header {
 		req.Header().Set(key, value)
 	}
 
-	_, err := f.tenants.GetObservationSettings(t.Context(), req)
+	_, err := f.graphs.GetObservationPointMappings(t.Context(), req)
 
 	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
 }
@@ -261,7 +274,7 @@ func TestInternalListenerReissuesAGraphAuthoringEventContext(t *testing.T) {
 		t.Fatalf("GetEvent() error = %v, want nil", err)
 	}
 
-	header, claims := f.forwarded(t)
+	header, claims := f.forwarded(t, tenantManagement)
 
 	if header.Get("Authorization") == "Bearer "+presented.Token {
 		t.Error("the upstream received the context token, want a reissued token")
@@ -332,7 +345,7 @@ func TestInternalListenerForwardsNoIncomingCredential(t *testing.T) {
 		t.Fatalf("GetEvent() error = %v, want nil", err)
 	}
 
-	forwarded, _ := f.forwarded(t)
+	forwarded, _ := f.forwarded(t, tenantManagement)
 
 	if got := forwarded.Values("Authorization"); len(got) != 1 {
 		t.Errorf("forwarded Authorization = %q, want only the reissued token", got)
@@ -377,11 +390,11 @@ func TestInternalListenerReissuesObservationContexts(t *testing.T) {
 			f := newServiceGateway(t, config.InboundInternal)
 			presented := test.context(f, t)
 
-			if err := getObservationSettings(t, f, bearerHeader(presented.Token)); err != nil {
-				t.Fatalf("GetObservationSettings() error = %v, want nil", err)
+			if err := getObservationPointMappings(t, f, bearerHeader(presented.Token)); err != nil {
+				t.Fatalf("GetObservationPointMappings() error = %v, want nil", err)
 			}
 
-			_, claims := f.forwarded(t)
+			_, claims := f.forwarded(t, graphAuthoring)
 
 			if claims.Subject != observation || claims.TokenUse != internaljwt.TokenUseService || claims.Txn != presented.Claims.Txn {
 				t.Errorf("forwarded sub=%q token_use=%q txn=%q, want %q %q %q",
@@ -389,7 +402,7 @@ func TestInternalListenerReissuesObservationContexts(t *testing.T) {
 			}
 
 			assertAudit(t, singleAuditRecord(t, f.audit), map[string]any{
-				"method":         tenantv1connect.TenantServiceGetObservationSettingsProcedure,
+				"method":         graphv1connect.GraphSupplyServiceGetObservationPointMappingsProcedure,
 				"result":         "ok",
 				"caller_service": observation,
 				"origin":         test.wantOrigin,
@@ -444,14 +457,18 @@ func TestInternalListenerRejects(t *testing.T) {
 			wantReason: "missing_service_credential",
 		},
 		"an empty declared caller": {
-			call:       getEvent,
-			header:     func(*testing.T, serviceFixture) map[string]string { return map[string]string{"Tolo-Caller-Service": ""} },
+			call: getEvent,
+			header: func(*testing.T, serviceFixture) map[string]string {
+				return map[string]string{"Tolo-Caller-Service": ""}
+			},
 			wantCode:   connectrpc.CodeUnauthenticated,
 			wantReason: "malformed_caller_service",
 		},
 		"an authorization that is not a bearer token": {
-			call:       getEvent,
-			header:     func(*testing.T, serviceFixture) map[string]string { return map[string]string{"Authorization": "Basic abc"} },
+			call: getEvent,
+			header: func(*testing.T, serviceFixture) map[string]string {
+				return map[string]string{"Authorization": "Basic abc"}
+			},
 			wantCode:   connectrpc.CodeUnauthenticated,
 			wantReason: "malformed_authorization",
 		},
@@ -491,21 +508,25 @@ func TestInternalListenerRejects(t *testing.T) {
 			wantReason: "invalid_context",
 		},
 		"a declared caller on an edge that needs a context": {
-			call:       getEvent,
-			header:     func(*testing.T, serviceFixture) map[string]string { return map[string]string{"Tolo-Caller-Service": graphAuthoring} },
+			call: getEvent,
+			header: func(*testing.T, serviceFixture) map[string]string {
+				return map[string]string{"Tolo-Caller-Service": graphAuthoring}
+			},
 			wantCode:   connectrpc.CodeUnauthenticated,
 			wantReason: "context_required",
 			wantCaller: graphAuthoring,
 		},
 		"a declared caller with no edge": {
-			call:       getEvent,
-			header:     func(*testing.T, serviceFixture) map[string]string { return map[string]string{"Tolo-Caller-Service": "tolo-unknown"} },
+			call: getEvent,
+			header: func(*testing.T, serviceFixture) map[string]string {
+				return map[string]string{"Tolo-Caller-Service": "tolo-unknown"}
+			},
 			wantCode:   connectrpc.CodePermissionDenied,
 			wantReason: "edge_not_allowed",
 			wantCaller: "tolo-unknown",
 		},
 		"a graph authoring context on the observation edge": {
-			call: getObservationSettings,
+			call: getObservationPointMappings,
 			header: func(t *testing.T, f serviceFixture) map[string]string {
 				t.Helper()
 
@@ -580,7 +601,9 @@ func TestPublicListenerExecutesNoServiceCall(t *testing.T) {
 			wantReason: "invalid_token",
 		},
 		"a declared caller": {
-			header:     func(*testing.T, serviceFixture) map[string]string { return map[string]string{"Tolo-Caller-Service": graphAuthoring} },
+			header: func(*testing.T, serviceFixture) map[string]string {
+				return map[string]string{"Tolo-Caller-Service": graphAuthoring}
+			},
 			wantCode:   connectrpc.CodeUnauthenticated,
 			wantReason: "caller_service_on_public",
 		},

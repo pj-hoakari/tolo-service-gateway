@@ -24,8 +24,8 @@ const (
 	gatewayIssuerID = "service-gateway"
 	signingKeyID    = "local-key-1"
 
-	getEventProcedure               = "/tolo.tenant.v1.TenantService/GetEvent"
-	getObservationSettingsProcedure = "/tolo.tenant.v1.TenantService/GetObservationSettings"
+	getEventProcedure    = "/tolo.tenant.v1.TenantService/GetEvent"
+	getMappingsProcedure = "/tolo.graph.v1.GraphSupplyService/GetObservationPointMappings"
 
 	graphAuthoring   = "tolo-graph-authoring"
 	observation      = "tolo-observation"
@@ -263,13 +263,13 @@ func TestReissueCarriesTheOriginSubjectOverASecondHop(t *testing.T) {
 	keys := newKeys(t)
 	internalIssuer := newIssuer(t, keys)
 	edges := []edgepolicy.Edge{
-		edge(observation, getObservationSettingsProcedure, []string{internaljwt.TokenUseService}, false, false),
+		edge(observation, getMappingsProcedure, []string{internaljwt.TokenUseService}, false, false),
 	}
 	contextToken := userOriginServiceContext(t, internalIssuer, observation, guestService)
 
 	result, err := newReissuer(t, keys, internalIssuer, edges).Reissue(t.Context(), reissue.Request{
 		Caller:       observation,
-		Procedure:    getObservationSettingsProcedure,
+		Procedure:    getMappingsProcedure,
 		ContextToken: contextToken.Token,
 	})
 	if err != nil {
@@ -305,13 +305,13 @@ func TestReissueKeepsOnlyTheChainOfAMachineOriginContext(t *testing.T) {
 	keys := newKeys(t)
 	internalIssuer := newIssuer(t, keys)
 	edges := []edgepolicy.Edge{
-		edge(observation, getObservationSettingsProcedure, []string{internaljwt.TokenUseEventAccess}, true, false),
+		edge(observation, getMappingsProcedure, []string{internaljwt.TokenUseEventAccess}, true, false),
 	}
 	contextToken := machineOriginContext(t, internalIssuer, observation, guestService)
 
 	result, err := newReissuer(t, keys, internalIssuer, edges).Reissue(t.Context(), reissue.Request{
 		Caller:       observation,
-		Procedure:    getObservationSettingsProcedure,
+		Procedure:    getMappingsProcedure,
 		ContextToken: contextToken.Token,
 	})
 	if err != nil {
@@ -343,10 +343,10 @@ func TestReissueStartsAChainForANewMachineOrigin(t *testing.T) {
 	keys := newKeys(t)
 	internalIssuer := newIssuer(t, keys)
 	edges := []edgepolicy.Edge{
-		edge(observation, getObservationSettingsProcedure, nil, false, true),
+		edge(observation, getMappingsProcedure, nil, false, true),
 	}
 	reissuer := newReissuer(t, keys, internalIssuer, edges)
-	request := reissue.Request{Caller: observation, Procedure: getObservationSettingsProcedure, ContextToken: ""}
+	request := reissue.Request{Caller: observation, Procedure: getMappingsProcedure, ContextToken: ""}
 
 	first, err := reissuer.Reissue(t.Context(), request)
 	if err != nil {
@@ -474,15 +474,15 @@ func TestReissueRejects(t *testing.T) {
 			want:      reissue.ErrContextRequired,
 		},
 		"no context token on an edge that only chains machine origins": {
-			edges:     []edgepolicy.Edge{edge(observation, getObservationSettingsProcedure, nil, true, false)},
+			edges:     []edgepolicy.Edge{edge(observation, getMappingsProcedure, nil, true, false)},
 			caller:    observation,
-			procedure: getObservationSettingsProcedure,
+			procedure: getMappingsProcedure,
 			want:      reissue.ErrContextRequired,
 		},
 		"a machine-origin chain on an edge that does not accept one": {
-			edges:     []edgepolicy.Edge{edge(observation, getObservationSettingsProcedure, []string{internaljwt.TokenUseEventAccess}, false, true)},
+			edges:     []edgepolicy.Edge{edge(observation, getMappingsProcedure, []string{internaljwt.TokenUseEventAccess}, false, true)},
 			caller:    observation,
-			procedure: getObservationSettingsProcedure,
+			procedure: getMappingsProcedure,
 			contextToken: func(t *testing.T, _ issuer.KeyProvider, internalIssuer *issuer.Issuer) string {
 				t.Helper()
 
@@ -537,13 +537,13 @@ func TestReissueDoesNotReadAnInvalidContextAsANewMachineOrigin(t *testing.T) {
 	keys := newKeys(t)
 	internalIssuer := newIssuer(t, keys)
 	edges := []edgepolicy.Edge{
-		edge(observation, getObservationSettingsProcedure, []string{internaljwt.TokenUseEventAccess}, true, true),
+		edge(observation, getMappingsProcedure, []string{internaljwt.TokenUseEventAccess}, true, true),
 	}
 	foreign := eventAccessContext(t, newIssuer(t, newKeys(t)), observation)
 
 	result, err := newReissuer(t, keys, internalIssuer, edges).Reissue(t.Context(), reissue.Request{
 		Caller:       observation,
-		Procedure:    getObservationSettingsProcedure,
+		Procedure:    getMappingsProcedure,
 		ContextToken: foreign.Token,
 	})
 	if !errors.Is(err, reissue.ErrInvalidContext) {

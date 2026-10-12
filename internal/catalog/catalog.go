@@ -91,13 +91,6 @@ func Edges() []edgepolicy.Edge {
 		},
 		{
 			Caller:              observationCaller,
-			Procedure:           tenantv1connect.TenantServiceGetObservationSettingsProcedure,
-			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
-			MachineChain:        true,
-			NewMachineOrigin:    false,
-		},
-		{
-			Caller:              observationCaller,
 			Procedure:           graphv1connect.GraphSupplyServiceGetCurrentRevisionProcedure,
 			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
 			MachineChain:        true,
