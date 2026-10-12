@@ -53,7 +53,7 @@ expect 200
 
 owner_token="$(token -k tenant_access -b "${OWNER_SUB}" -t "${tenant_id}" -s 'tenant.read tenant.write events.read events.manage')"
 call tolo.tenant.v1.TenantService/CreateEvent \
-    "$(jq -nc --arg t "${tenant_id}" '{tenantId: $t, name: "observation-expo", type: "EVENT_TYPE_SHORT_TERM"}')" \
+    "$(jq -nc --arg t "${tenant_id}" '{tenantId: $t, name: "observation-expo"}')" \
     "${owner_token}"
 expect 200
 event_id="$(printf '%s' "${body}" | jq -r '.event.eventId')"
@@ -108,5 +108,18 @@ for procedure in GetCurrentRevision GetObservationPointMappings; do
     printf '%s -> HTTP %s\n' "${method}" "${found:-none}"
     [ "${found}" = "200" ] || { printf 'no successful %s from tolo-observation in the gateway audit log\n' "${method}" >&2; exit 1; }
 done
+
+printf '\n# 5. UpdateObservationSettings and GetObservationSettings through the public listener\n'
+settings_token="$(token -k event_access -b "${OWNER_SUB}" -t "${tenant_id}" -e "${event_id}" -s 'events.read events.manage')"
+call tolo.observation.v1.ObservationSettingsService/UpdateObservationSettings \
+    "$(jq -nc --arg e "${event_id}" '{eventId: $e, settings: {historyWindowDays: 14, eventType: "EVENT_TYPE_LONG_TERM"}}')" \
+    "${settings_token}"
+expect 200
+call tolo.observation.v1.ObservationSettingsService/GetObservationSettings \
+    "$(jq -nc --arg e "${event_id}" '{eventId: $e}')" \
+    "${settings_token}"
+expect 200
+printf '%s' "${body}" | jq -e '.settings.historyWindowDays == 14 and .settings.eventType == "EVENT_TYPE_LONG_TERM"' >/dev/null \
+    || { printf 'GetObservationSettings did not return the stored settings\n' >&2; exit 1; }
 
 printf '\nall steps behaved as expected (tenant_id=%s event_id=%s edge_device_id=%s)\n' "${tenant_id}" "${event_id}" "${device_id}"
