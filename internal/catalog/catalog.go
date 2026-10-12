@@ -59,6 +59,11 @@ func Bindings() []registry.Binding {
 			Destination: observationDestination,
 			Policies:    observationv1connect.EdgeDeviceServicePolicies,
 		},
+		{
+			Service:     observationv1connect.ObservationSettingsServiceName,
+			Destination: observationDestination,
+			Policies:    observationv1connect.ObservationSettingsServicePolicies,
+		},
 	}
 }
 
