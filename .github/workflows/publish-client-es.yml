@@ -29,6 +29,6 @@ jobs:
                   scope: "@pj-hoakari"
 
             - name: Publish connect-es client
-              uses: pj-hoakari/actions/publish-client-es@c61d08b3baf77fa710bcea9849e1c88540fd1248 # v20261003.0.0
+              uses: pj-hoakari/actions/publish-client-es@e5cc4b20767674fe5af61af03625d778f7ec3acf # v20261013.0.0
               with:
                   version: ${{ inputs.version }}
