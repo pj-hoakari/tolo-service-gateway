@@ -5,3 +5,4 @@ plugins:
       out: clients/connect-es/gen
       opt:
           - target=js+dts
+          - import_extension=js
