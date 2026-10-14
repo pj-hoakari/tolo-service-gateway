@@ -103,5 +103,12 @@ func Edges() []edgepolicy.Edge {
 			MachineChain:        true,
 			NewMachineOrigin:    false,
 		},
+		{
+			Caller:              observationCaller,
+			Procedure:           graphv1connect.GraphSupplyServiceGetQrLocationsProcedure,
+			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
+			MachineChain:        true,
+			NewMachineOrigin:    false,
+		},
 	}
 }

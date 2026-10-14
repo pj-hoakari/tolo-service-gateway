@@ -1,7 +1,7 @@
 # Observation からのサービス間呼び出しの確認
 
 `compose.obs.yml` は、`compose.yml`・`compose.tm.yml`・`compose.ga.yml` の上に [tolo-observation](https://github.com/pj-hoakari/tolo-observation) を加えるオーバーライドになる  
-Observation は `ReportMeasurements` を受けると、受け取った内部 JWT を `Authorization` に載せたまま、Gateway の内部用 listener（`http://server:8090`）を通して Graph Authoring の `GetCurrentRevision` と `GetObservationPointMappings` を呼ぶ  
+Observation は `ReportMeasurements` を受けると、受け取った内部 JWT を `Authorization` に載せたまま、Gateway の内部用 listener（`http://server:8090`）を通して Graph Authoring の `GetCurrentRevision`・`GetObservationPointMappings`・`GetQrLocations` を呼ぶ  
 これを重ねると、公開用 listener で受けた外部トークンが Observation 宛ての `event_access` 内部 JWT になり、Observation がそれを提示し、Gateway が Graph Authoring 宛てに再発行する流れを実機で確かめられる
 
 ## 構成
@@ -47,7 +47,7 @@ COMPOSE_PROJECT_NAME=toloobscheck COMPOSE_FILE=compose.yml:compose.tm.yml:compos
 | `RegisterEdgeDevice` | `200`。`edgeDeviceId` と観測点の `observationPointId` |
 | `Heartbeat` | `200` |
 | `ReportMeasurements` | `200`。`acceptedCount` が `1` |
-| 監査ログの `GetCurrentRevision`・`GetObservationPointMappings` | `caller_service=tolo-observation` の記録が `http_status=200` |
+| 監査ログの `GetCurrentRevision`・`GetObservationPointMappings`・`GetQrLocations` | `caller_service=tolo-observation` の記録が `http_status=200` |
 | `UpdateObservationSettings` | `200` |
 | `GetObservationSettings` | `200`。`historyWindowDays` が `14`、`eventType` が `EVENT_TYPE_LONG_TERM` |
 
