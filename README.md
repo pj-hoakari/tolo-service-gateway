@@ -21,7 +21,7 @@ docker compose up --build
 
 もしくは
 ```bash
-task up:build
+task up
 ```
 
 この構成は `keygen`・`server`・`testbackend`・`fakeidp` の 4 つのサービスからなる
@@ -36,6 +36,7 @@ task up:build
 `server` と後段のサービスは後段ごとに分けたネットワークで 1 対 1 につながり、後段どうしや DB から `server` へは届かない  
 後段と DB のネットワークは `internal: true` で、ホストへの公開と外部への通信を持たない  
 この到達範囲は `scripts/dev/compose-reachability-check.sh` で確かめられ、e2e workflow でも実行する  
+転送の配線（匿名の `Ping`、外部トークンの有無と scope による `Greet` の可否、後段が無い宛先の `unavailable`）は `scripts/dev/gateway-wiring-check.sh` で確かめる。`task e2e` はこの 2 つを順に実行する  
 公開用の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）・公開 JWKS と、匿名で呼べる業務 RPC になる  
 `/healthz` はプロセスが応答できる限り 200 を返す  
 `/readyz` は登録された準備チェックがすべて成功したときだけ 200 を返し、1 つでも失敗すれば 503 を返す（失敗の内容は応答本文には出さず、サーバー側のログにだけ記録する）  
@@ -232,8 +233,8 @@ RPC 登録表が参照する宛先が設定に無い場合も、設定にある�
 compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destinations.json` へ読み込み専用でマウントしている
 
 登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService`（宛先 `tolo-tenant-management`）、Graph Authoring の `tolo.graph.v1.GraphAuthoringService` と `tolo.graph.v1.GraphSupplyService`（宛先 `tolo-graph-authoring`）、Observation の `tolo.observation.v1.MeasurementIngestService`・`tolo.observation.v1.EdgeDeviceService`・`tolo.observation.v1.ObservationSettingsService`（宛先 `tolo-observation`）が入っている  
-ただし base の compose には Tenant Management、Graph Authoring、Observation のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる（`compose.tm.yml` を重ねると Tenant Management へ、さらに `compose.ga.yml` を重ねると Graph Authoring へ、`compose.obs.yml` を重ねると Observation へ届く。`docs/dev_tenant_management.md`・`docs/dev_graph_authoring.md`・`docs/dev_observation.md`）  
-さらに `compose.flow.yml` を重ねると Flow Control が加わり、計測値の送信から `optimization_results` に迂回路の提案が保存されるまでを runn の runbook で通せる（`docs/dev_integration.md`）
+ただしこのリポジトリの compose には Tenant Management、Graph Authoring、Observation のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる  
+実物の後段サービスや実物の IdP とつないだ確認は、[tolo](https://github.com/pj-hoakari/tolo) リポジトリの compose で行う
 
 #### 配備についての注意
 
@@ -252,10 +253,10 @@ docker compose -f compose.yml -f compose.o11y.yml up --build
 
 もしくは
 ```bash
-task up:build:o11y
+task up:o11y
 ```
 
-Jaeger UI は `http://localhost:16686`（停止は `task down:o11y`）
+Jaeger UI は `http://localhost:16686`（停止は `task down`）
 
 ---
 

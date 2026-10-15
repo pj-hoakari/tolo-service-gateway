@@ -48,34 +48,25 @@ tasks:
                 gh release create "$TAG" "${ARGS[@]}"
 
     up:
-        desc: Start the development environment.
-        cmds:
-            - docker compose up -d
-
-    up:build:
         desc: Build and start the development environment.
         cmds:
             - docker compose up -d --build
 
     up:o11y:
-        desc: Start the development environment with observability.
-        cmds:
-            - docker compose -f compose.yml -f compose.o11y.yml up -d
-
-    up:build:o11y:
-        desc: Build and start the development environment with observability.
+        desc: Build and start the development environment with Jaeger.
         cmds:
             - docker compose -f compose.yml -f compose.o11y.yml up -d --build
 
     down:
-        desc: Stop the development environment.
+        desc: Stop the development environment, including Jaeger. Pass -- -v to also delete the volumes.
         cmds:
-            - docker compose down
+            - docker compose -f compose.yml -f compose.o11y.yml down {{.CLI_ARGS}}
 
-    down:o11y:
-        desc: Stop the development environment with observability.
+    e2e:
+        desc: Check the gateway wiring against the running development environment.
         cmds:
-            - docker compose -f compose.yml -f compose.o11y.yml down
+            - ./scripts/dev/gateway-wiring-check.sh
+            - ./scripts/dev/compose-reachability-check.sh
 
     proto:
         desc: Lint proto and regenerate connect-go code for development.
