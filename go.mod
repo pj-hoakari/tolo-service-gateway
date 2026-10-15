@@ -1,6 +1,6 @@
 module github.com/pj-hoakari/tolo-service-gateway
 
-go 1.27.1
+go 1.27.2
 
 tool (
 	connectrpc.com/connect/cmd/protoc-gen-connect-go
