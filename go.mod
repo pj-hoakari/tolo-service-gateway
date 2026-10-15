@@ -12,7 +12,7 @@ tool (
 
 require (
 	connectrpc.com/connect v1.21.0
-	connectrpc.com/otelconnect v0.10.0
+	connectrpc.com/otelconnect v0.12.0
 	github.com/go-logr/logr v1.4.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/pj-hoakari/internal-jwt-handling v0.2.0
@@ -30,6 +30,7 @@ require (
 )
 
 require (
+	connectrpc.com/connect/v2 v2.0.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
