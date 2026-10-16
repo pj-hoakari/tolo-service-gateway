@@ -55,7 +55,7 @@ func testFileDescriptor() *descriptorpb.FileDescriptorProto {
 func newTestPlugin(t *testing.T) *protogen.Plugin {
 	t.Helper()
 
-	var options protogen.Options
+	options := Options()
 
 	plugin, err := options.New(&pluginpb.CodeGeneratorRequest{
 		FileToGenerate: []string{testProtoPath},
@@ -125,10 +125,12 @@ func TestGenerateWritesForwardersForBoundServicesOnly(t *testing.T) {
 	}
 
 	for _, want := range []string{
+		`connect "connectrpc.com/connect/v2"`,
 		"func Mounts() []forward.Mount {",
 		"Service: examplev1connect.BoundServiceName,",
-		"examplev1connect.NewBoundServiceHandler(",
-		"examplev1connect.NewBoundServiceClient(httpClient, baseURL, clientOptions...)",
+		"Register: func(server *connect.Server, client *connect.Client) {",
+		"examplev1connect.RegisterBoundServiceHandler(",
+		"examplev1connect.NewBoundServiceClient(client)",
 	} {
 		if !strings.Contains(mounts, want) {
 			t.Errorf("the generated mounts do not contain %q\ngot:\n%s", want, mounts)

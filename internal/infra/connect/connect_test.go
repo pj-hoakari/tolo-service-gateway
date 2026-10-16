@@ -14,7 +14,8 @@ import (
 	"testing"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/golang-jwt/jwt/v5"
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
@@ -87,12 +88,12 @@ type localGreetService struct {
 	greetv1connect.UnimplementedGreetServiceHandler
 }
 
-func (localGreetService) Ping(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
-	return connectrpc.NewResponse(&greetv1.PingResponse{Message: "pong"}), nil
+func (localGreetService) Ping(_ context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
+	return &greetv1.PingResponse{Message: "pong"}, nil
 }
 
-func (localGreetService) Greet(_ context.Context, req *connectrpc.Request[greetv1.GreetRequest]) (*connectrpc.Response[greetv1.GreetResponse], error) {
-	return connectrpc.NewResponse(&greetv1.GreetResponse{Greeting: "Hello, " + req.Msg.GetName() + "!"}), nil
+func (localGreetService) Greet(_ context.Context, req *greetv1.GreetRequest) (*greetv1.GreetResponse, error) {
+	return &greetv1.GreetResponse{Greeting: "Hello, " + req.GetName() + "!"}, nil
 }
 
 type fakeVerifier struct {
@@ -237,12 +238,13 @@ func newRPCHandler(t *testing.T, handlers map[string]http.Handler) http.Handler 
 func newGreetHandlers(t *testing.T) map[string]http.Handler {
 	t.Helper()
 
-	path, handler := greetv1connect.NewGreetServiceHandler(
-		localGreetService{UnimplementedGreetServiceHandler: greetv1connect.UnimplementedGreetServiceHandler{}},
-		connectrpc.WithInterceptors(infraconnect.AuditInterceptor()),
-	)
+	server := connectrpc.NewServer(infraconnect.AuditInterceptor())
+	greetv1connect.RegisterGreetServiceHandler(server, localGreetService{UnimplementedGreetServiceHandler: greetv1connect.UnimplementedGreetServiceHandler{}})
 
-	return map[string]http.Handler{path: handler}
+	mux := http.NewServeMux()
+	connecthttp.Mount(mux, server)
+
+	return map[string]http.Handler{greetMountPath: mux}
 }
 
 func newConnectRequest(target string) *http.Request {

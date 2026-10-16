@@ -10,7 +10,8 @@ import (
 	"slices"
 	"strings"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -55,7 +56,7 @@ type Config struct {
 }
 
 func Routes(cfg Config) func(mux *http.ServeMux) {
-	errorWriter := connectrpc.NewErrorWriter()
+	errorWriter := connecthttp.NewErrorWriter()
 	unimplemented := newUnimplementedHandler(errorWriter)
 	tracer := tracerOf(cfg.TracerProvider)
 
@@ -109,7 +110,7 @@ type pipeline struct {
 	tracer      trace.Tracer
 	next        http.Handler
 	fallback    http.Handler
-	errorWriter *connectrpc.ErrorWriter
+	errorWriter *connecthttp.ErrorWriter
 }
 
 func (p *pipeline) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -387,13 +388,13 @@ func (s *statusRecorder) Unwrap() http.ResponseWriter {
 	return s.ResponseWriter
 }
 
-func newUnimplementedHandler(errorWriter *connectrpc.ErrorWriter) http.Handler {
+func newUnimplementedHandler(errorWriter *connecthttp.ErrorWriter) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleUnimplemented(w, r, errorWriter)
 	})
 }
 
-func handleUnimplemented(w http.ResponseWriter, r *http.Request, errorWriter *connectrpc.ErrorWriter) {
+func handleUnimplemented(w http.ResponseWriter, r *http.Request, errorWriter *connecthttp.ErrorWriter) {
 	if r.Method != http.MethodPost || !errorWriter.IsSupported(r) {
 		http.NotFound(w, r)
 

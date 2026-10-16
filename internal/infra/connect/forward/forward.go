@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/connecterr"
@@ -40,26 +40,23 @@ func internalTokenFrom(ctx context.Context) (string, bool) {
 	return token, ok
 }
 
-func AuthorizationInterceptor() connectrpc.Interceptor {
-	return connectrpc.UnaryInterceptorFunc(func(next connectrpc.UnaryFunc) connectrpc.UnaryFunc {
-		return func(ctx context.Context, req connectrpc.AnyRequest) (connectrpc.AnyResponse, error) {
+func AuthorizationInterceptor() connectrpc.ClientInterceptor {
+	return func(next connectrpc.ClientFunc) connectrpc.ClientFunc {
+		return func(ctx context.Context, spec connectrpc.Spec) (connectrpc.ClientStream, error) {
 			if token, ok := internalTokenFrom(ctx); ok {
-				req.Header().Set(authorizationHeader, "Bearer "+token)
+				if info, ok := connectrpc.CallInfoForClientContext(ctx); ok {
+					info.RequestHeader().Set(authorizationHeader, "Bearer "+token)
+				}
 			}
 
-			return next(ctx, req)
+			return next(ctx, spec)
 		}
-	})
+	}
 }
 
 type Mount struct {
-	Service string
-	New     func(
-		httpClient connectrpc.HTTPClient,
-		baseURL string,
-		clientOptions []connectrpc.ClientOption,
-		handlerOptions []connectrpc.HandlerOption,
-	) (string, http.Handler)
+	Service  string
+	Register func(server *connectrpc.Server, client *connectrpc.Client)
 }
 
 func NewHTTPClient(transport http.RoundTripper) *http.Client {
@@ -73,18 +70,18 @@ func NewHTTPClient(transport http.RoundTripper) *http.Client {
 
 func Unary[Req, Res any](
 	ctx context.Context,
-	req *connectrpc.Request[Req],
-	call func(context.Context, *connectrpc.Request[Req]) (*connectrpc.Response[Res], error),
-) (*connectrpc.Response[Res], error) {
+	req *Req,
+	call func(context.Context, *Req) (*Res, error),
+) (*Res, error) {
 	ctx, cancel := withUpstreamDeadline(ctx)
 	defer cancel()
 
-	res, err := call(ctx, connectrpc.NewRequest(req.Msg))
+	res, err := call(ctx, req)
 	if err != nil {
 		return nil, translateError(ctx, err)
 	}
 
-	return connectrpc.NewResponse(res.Msg), nil
+	return res, nil
 }
 
 func withUpstreamDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -119,7 +116,7 @@ func translateError(ctx context.Context, err error) error {
 		return failed(ctx, reasonDeadlineExceeded, connecterr.DeadlineExceeded())
 	}
 
-	if !connectrpc.IsWireError(upstream) {
+	if !upstream.IsRemote() {
 		slog.ErrorContext(ctx, "upstream is unreachable", "error", err)
 
 		return failed(ctx, reasonUpstreamUnreachable, connecterr.Unavailable())
@@ -172,10 +169,10 @@ func failed(ctx context.Context, reason string, err *connectrpc.Error) error {
 }
 
 func relayedError(upstream *connectrpc.Error) *connectrpc.Error {
-	relayed := connectrpc.NewError(upstream.Code(), errors.New(upstream.Message()))
+	relayed := connectrpc.NewError(upstream.Code(), upstream.Message())
 
 	for _, detail := range upstream.Details() {
-		relayed.AddDetail(detail)
+		relayed = relayed.WithDetail(detail)
 	}
 
 	return relayed

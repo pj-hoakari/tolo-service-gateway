@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/internal-jwt-handling/jwks"
@@ -71,7 +72,7 @@ func newTestClient(t *testing.T, keys internaljwt.JWKS) greetv1connect.GreetServ
 	httpServer := httptest.NewServer(handler)
 	t.Cleanup(httpServer.Close)
 
-	return greetv1connect.NewGreetServiceClient(httpServer.Client(), httpServer.URL)
+	return greetv1connect.NewGreetServiceClient(connectrpc.NewClient(connecthttp.NewTransport(httpServer.Client(), httpServer.URL)))
 }
 
 func mintInternalJWT(t *testing.T, tokenUse, scope, tenantPublicID string) (string, internaljwt.JWKS) {
@@ -99,15 +100,15 @@ func TestGreetAcceptsInternalJWT(t *testing.T) {
 	authorization, keys := mintInternalJWT(t, internaljwt.TokenUseTenantAccess, "greeting.read", "a1b2c3d4e5f60718")
 	client := newTestClient(t, keys)
 
-	req := connectrpc.NewRequest(&greetv1.GreetRequest{Name: "Ada"})
-	req.Header().Set("Authorization", authorization)
+	ctx, info := connectrpc.NewClientContext(context.Background())
+	info.RequestHeader().Set("Authorization", authorization)
 
-	res, err := client.Greet(context.Background(), req)
+	res, err := client.Greet(ctx, &greetv1.GreetRequest{Name: "Ada"})
 	if err != nil {
 		t.Fatalf("Greet() error = %v", err)
 	}
 
-	if got, want := res.Msg.GetGreeting(), "Hello, Ada!"; got != want {
+	if got, want := res.GetGreeting(), "Hello, Ada!"; got != want {
 		t.Errorf("Greeting = %q, want %q", got, want)
 	}
 }
@@ -118,7 +119,7 @@ func TestGreetRejectsMissingBearerToken(t *testing.T) {
 	_, keys := mintInternalJWT(t, internaljwt.TokenUseTenantAccess, "greeting.read", "a1b2c3d4e5f60718")
 	client := newTestClient(t, keys)
 
-	_, err := client.Greet(context.Background(), connectrpc.NewRequest(&greetv1.GreetRequest{Name: "Ada"}))
+	_, err := client.Greet(context.Background(), &greetv1.GreetRequest{Name: "Ada"})
 	if got, want := connectrpc.CodeOf(err), connectrpc.CodeUnauthenticated; got != want {
 		t.Fatalf("Greet() error code = %v, want %v", got, want)
 	}
@@ -130,10 +131,10 @@ func TestGreetRejectsMissingName(t *testing.T) {
 	authorization, keys := mintInternalJWT(t, internaljwt.TokenUseTenantAccess, "greeting.read", "a1b2c3d4e5f60718")
 	client := newTestClient(t, keys)
 
-	req := connectrpc.NewRequest(&greetv1.GreetRequest{})
-	req.Header().Set("Authorization", authorization)
+	ctx, info := connectrpc.NewClientContext(context.Background())
+	info.RequestHeader().Set("Authorization", authorization)
 
-	_, err := client.Greet(context.Background(), req)
+	_, err := client.Greet(ctx, &greetv1.GreetRequest{})
 	if got, want := connectrpc.CodeOf(err), connectrpc.CodeInvalidArgument; got != want {
 		t.Fatalf("Greet() error code = %v, want %v", got, want)
 	}
@@ -145,12 +146,12 @@ func TestPingAcceptsCallWithoutToken(t *testing.T) {
 	_, keys := mintInternalJWT(t, internaljwt.TokenUseTenantAccess, "greeting.read", "a1b2c3d4e5f60718")
 	client := newTestClient(t, keys)
 
-	res, err := client.Ping(context.Background(), connectrpc.NewRequest(&greetv1.PingRequest{}))
+	res, err := client.Ping(context.Background(), &greetv1.PingRequest{})
 	if err != nil {
 		t.Fatalf("Ping() error = %v", err)
 	}
 
-	if got, want := res.Msg.GetMessage(), "pong"; got != want {
+	if got, want := res.GetMessage(), "pong"; got != want {
 		t.Errorf("Message = %q, want %q", got, want)
 	}
 }

@@ -13,7 +13,8 @@ import (
 	"testing"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/golang-jwt/jwt/v5"
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
@@ -51,10 +52,10 @@ type upstreamTenantService struct {
 	calls chan http.Header
 }
 
-func (s upstreamTenantService) GetEvent(_ context.Context, req *connectrpc.Request[tenantv1.GetEventRequest]) (*connectrpc.Response[tenantv1.GetEventResponse], error) {
-	s.calls <- req.Header().Clone()
+func (s upstreamTenantService) GetEvent(ctx context.Context, _ *tenantv1.GetEventRequest) (*tenantv1.GetEventResponse, error) {
+	s.calls <- requestHeaderOf(ctx)
 
-	return connectrpc.NewResponse(&tenantv1.GetEventResponse{}), nil
+	return &tenantv1.GetEventResponse{}, nil
 }
 
 type upstreamGraphSupplyService struct {
@@ -63,12 +64,12 @@ type upstreamGraphSupplyService struct {
 }
 
 func (s upstreamGraphSupplyService) GetObservationPointMappings(
-	_ context.Context,
-	req *connectrpc.Request[graphv1.GetMappingsRequest],
-) (*connectrpc.Response[graphv1.GetMappingsResponse], error) {
-	s.calls <- req.Header().Clone()
+	ctx context.Context,
+	_ *graphv1.GetMappingsRequest,
+) (*graphv1.GetMappingsResponse, error) {
+	s.calls <- requestHeaderOf(ctx)
 
-	return connectrpc.NewResponse(&graphv1.GetMappingsResponse{}), nil
+	return &graphv1.GetMappingsResponse{}, nil
 }
 
 type serviceFixture struct {
@@ -118,14 +119,16 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 	calls := make(chan http.Header, 8)
 
 	mux := http.NewServeMux()
-	mux.Handle(tenantv1connect.NewTenantServiceHandler(upstreamTenantService{
+	server := connectrpc.NewServer()
+	tenantv1connect.RegisterTenantServiceHandler(server, upstreamTenantService{
 		UnimplementedTenantServiceHandler: tenantv1connect.UnimplementedTenantServiceHandler{},
 		calls:                             calls,
-	}))
-	mux.Handle(graphv1connect.NewGraphSupplyServiceHandler(upstreamGraphSupplyService{
+	})
+	graphv1connect.RegisterGraphSupplyServiceHandler(server, upstreamGraphSupplyService{
 		UnimplementedGraphSupplyServiceHandler: graphv1connect.UnimplementedGraphSupplyServiceHandler{},
 		calls:                                  calls,
-	}))
+	})
+	connecthttp.Mount(mux, server)
 
 	upstream := httptest.NewServer(mux)
 	t.Cleanup(upstream.Close)
@@ -135,8 +138,8 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 		destinationsTo(t, upstream.URL),
 		forwardgen.Mounts(),
 		forward.NewHTTPClient(http.DefaultTransport),
-		[]connectrpc.ClientOption{connectrpc.WithInterceptors(forward.AuthorizationInterceptor())},
-		[]connectrpc.HandlerOption{connectrpc.WithInterceptors(infraconnect.AuditInterceptor())},
+		[]connectrpc.ClientInterceptor{forward.AuthorizationInterceptor()},
+		[]connectrpc.ServerInterceptor{infraconnect.AuditInterceptor()},
 	)
 	if err != nil {
 		t.Fatalf("Handlers() error = %v, want nil", err)
@@ -162,8 +165,8 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 	t.Cleanup(gateway.Close)
 
 	return serviceFixture{
-		tenants:  tenantv1connect.NewTenantServiceClient(gateway.Client(), gateway.URL),
-		graphs:   graphv1connect.NewGraphSupplyServiceClient(gateway.Client(), gateway.URL),
+		tenants:  tenantv1connect.NewTenantServiceClient(connectrpc.NewClient(connecthttp.NewTransport(gateway.Client(), gateway.URL))),
+		graphs:   graphv1connect.NewGraphSupplyServiceClient(connectrpc.NewClient(connecthttp.NewTransport(gateway.Client(), gateway.URL))),
 		issuer:   gatewayIssuer,
 		backend:  contexts,
 		upstream: calls,
@@ -237,12 +240,12 @@ func (f serviceFixture) assertNotForwarded(t *testing.T) {
 func getEvent(t *testing.T, f serviceFixture, header map[string]string) error {
 	t.Helper()
 
-	req := connectrpc.NewRequest(&tenantv1.GetEventRequest{EventId: contextEventID})
+	ctx, info := connectrpc.NewClientContext(t.Context())
 	for key, value := range header {
-		req.Header().Set(key, value)
+		info.RequestHeader().Set(key, value)
 	}
 
-	_, err := f.tenants.GetEvent(t.Context(), req)
+	_, err := f.tenants.GetEvent(ctx, &tenantv1.GetEventRequest{EventId: contextEventID})
 
 	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
 }
@@ -250,12 +253,12 @@ func getEvent(t *testing.T, f serviceFixture, header map[string]string) error {
 func getObservationPointMappings(t *testing.T, f serviceFixture, header map[string]string) error {
 	t.Helper()
 
-	req := connectrpc.NewRequest(&graphv1.GetMappingsRequest{EventId: contextEventID})
+	ctx, info := connectrpc.NewClientContext(t.Context())
 	for key, value := range header {
-		req.Header().Set(key, value)
+		info.RequestHeader().Set(key, value)
 	}
 
-	_, err := f.graphs.GetObservationPointMappings(t.Context(), req)
+	_, err := f.graphs.GetObservationPointMappings(ctx, &graphv1.GetMappingsRequest{EventId: contextEventID})
 
 	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
 }

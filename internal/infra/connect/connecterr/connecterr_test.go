@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/connecterr"

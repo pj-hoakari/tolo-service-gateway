@@ -5,48 +5,48 @@ import (
 	"errors"
 	"log/slog"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 )
 
-// errInternal is the only detail a client learns about an internal failure.
-var errInternal = errors.New("internal error")
+// messageInternal is the only detail a client learns about an internal failure.
+const messageInternal = "internal error"
 
-var (
-	errUnauthenticated           = errors.New("unauthenticated")
-	errPermissionDenied          = errors.New("permission denied")
-	errUnimplemented             = errors.New("unimplemented")
-	errUpstreamUnavailable       = errors.New("upstream unavailable")
-	errAuthenticationUnavailable = errors.New("authentication unavailable")
-	errCanceled                  = errors.New("canceled")
-	errDeadlineExceeded          = errors.New("deadline exceeded")
+const (
+	messageUnauthenticated           = "unauthenticated"
+	messagePermissionDenied          = "permission denied"
+	messageUnimplemented             = "unimplemented"
+	messageUpstreamUnavailable       = "upstream unavailable"
+	messageAuthenticationUnavailable = "authentication unavailable"
+	messageCanceled                  = "canceled"
+	messageDeadlineExceeded          = "deadline exceeded"
 )
 
 func Unauthenticated() *connectrpc.Error {
-	return connectrpc.NewError(connectrpc.CodeUnauthenticated, errUnauthenticated)
+	return connectrpc.NewError(connectrpc.CodeUnauthenticated, messageUnauthenticated)
 }
 
 func PermissionDenied() *connectrpc.Error {
-	return connectrpc.NewError(connectrpc.CodePermissionDenied, errPermissionDenied)
+	return connectrpc.NewError(connectrpc.CodePermissionDenied, messagePermissionDenied)
 }
 
 func Unimplemented() *connectrpc.Error {
-	return connectrpc.NewError(connectrpc.CodeUnimplemented, errUnimplemented)
+	return connectrpc.NewError(connectrpc.CodeUnimplemented, messageUnimplemented)
 }
 
 func Unavailable() *connectrpc.Error {
-	return connectrpc.NewError(connectrpc.CodeUnavailable, errUpstreamUnavailable)
+	return connectrpc.NewError(connectrpc.CodeUnavailable, messageUpstreamUnavailable)
 }
 
 func AuthenticationUnavailable() *connectrpc.Error {
-	return connectrpc.NewError(connectrpc.CodeUnavailable, errAuthenticationUnavailable)
+	return connectrpc.NewError(connectrpc.CodeUnavailable, messageAuthenticationUnavailable)
 }
 
 func Canceled() *connectrpc.Error {
-	return connectrpc.NewError(connectrpc.CodeCanceled, errCanceled)
+	return connectrpc.NewError(connectrpc.CodeCanceled, messageCanceled)
 }
 
 func DeadlineExceeded() *connectrpc.Error {
-	return connectrpc.NewError(connectrpc.CodeDeadlineExceeded, errDeadlineExceeded)
+	return connectrpc.NewError(connectrpc.CodeDeadlineExceeded, messageDeadlineExceeded)
 }
 
 // InternalError reports a failure the client can do nothing about. The cause is
@@ -62,14 +62,14 @@ func DeadlineExceeded() *connectrpc.Error {
 // service answers an internal failure the same way.
 func InternalError(ctx context.Context, err error) *connectrpc.Error {
 	if errors.Is(err, context.Canceled) {
-		return connectrpc.NewError(connectrpc.CodeCanceled, err)
+		return connectrpc.NewError(connectrpc.CodeCanceled, err.Error()).WithCause(err)
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) {
-		return connectrpc.NewError(connectrpc.CodeDeadlineExceeded, err)
+		return connectrpc.NewError(connectrpc.CodeDeadlineExceeded, err.Error()).WithCause(err)
 	}
 
 	slog.ErrorContext(ctx, "internal error", "error", err)
 
-	return connectrpc.NewError(connectrpc.CodeInternal, errInternal) //nolint:forbidigo // the one place that builds internal errors
+	return connectrpc.NewError(connectrpc.CodeInternal, messageInternal) //nolint:forbidigo // the one place that builds internal errors
 }

@@ -3,7 +3,6 @@
 package forwardgen
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	v1 "github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1"
 	observationv1connect "github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1/observationv1connect"
@@ -14,7 +13,7 @@ type toloObservationV1MeasurementIngestServiceForwarder struct {
 	client observationv1connect.MeasurementIngestServiceClient
 }
 
-func (f *toloObservationV1MeasurementIngestServiceForwarder) ReportMeasurements(ctx context.Context, req *connect.Request[v1.ReportMeasurementsRequest]) (*connect.Response[v1.ReportMeasurementsResponse], error) {
+func (f *toloObservationV1MeasurementIngestServiceForwarder) ReportMeasurements(ctx context.Context, req *v1.ReportMeasurementsRequest) (*v1.ReportMeasurementsResponse, error) {
 	return forward.Unary(ctx, req, f.client.ReportMeasurements)
 }
 
@@ -22,23 +21,23 @@ type toloObservationV1EdgeDeviceServiceForwarder struct {
 	client observationv1connect.EdgeDeviceServiceClient
 }
 
-func (f *toloObservationV1EdgeDeviceServiceForwarder) RegisterEdgeDevice(ctx context.Context, req *connect.Request[v1.RegisterEdgeDeviceRequest]) (*connect.Response[v1.RegisterEdgeDeviceResponse], error) {
+func (f *toloObservationV1EdgeDeviceServiceForwarder) RegisterEdgeDevice(ctx context.Context, req *v1.RegisterEdgeDeviceRequest) (*v1.RegisterEdgeDeviceResponse, error) {
 	return forward.Unary(ctx, req, f.client.RegisterEdgeDevice)
 }
 
-func (f *toloObservationV1EdgeDeviceServiceForwarder) UnregisterEdgeDevice(ctx context.Context, req *connect.Request[v1.UnregisterEdgeDeviceRequest]) (*connect.Response[v1.UnregisterEdgeDeviceResponse], error) {
+func (f *toloObservationV1EdgeDeviceServiceForwarder) UnregisterEdgeDevice(ctx context.Context, req *v1.UnregisterEdgeDeviceRequest) (*v1.UnregisterEdgeDeviceResponse, error) {
 	return forward.Unary(ctx, req, f.client.UnregisterEdgeDevice)
 }
 
-func (f *toloObservationV1EdgeDeviceServiceForwarder) ListEdgeDevices(ctx context.Context, req *connect.Request[v1.ListEdgeDevicesRequest]) (*connect.Response[v1.ListEdgeDevicesResponse], error) {
+func (f *toloObservationV1EdgeDeviceServiceForwarder) ListEdgeDevices(ctx context.Context, req *v1.ListEdgeDevicesRequest) (*v1.ListEdgeDevicesResponse, error) {
 	return forward.Unary(ctx, req, f.client.ListEdgeDevices)
 }
 
-func (f *toloObservationV1EdgeDeviceServiceForwarder) Heartbeat(ctx context.Context, req *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error) {
+func (f *toloObservationV1EdgeDeviceServiceForwarder) Heartbeat(ctx context.Context, req *v1.HeartbeatRequest) (*v1.HeartbeatResponse, error) {
 	return forward.Unary(ctx, req, f.client.Heartbeat)
 }
 
-func (f *toloObservationV1EdgeDeviceServiceForwarder) UpdateObservationPointConfig(ctx context.Context, req *connect.Request[v1.UpdateObservationPointConfigRequest]) (*connect.Response[v1.UpdateObservationPointConfigResponse], error) {
+func (f *toloObservationV1EdgeDeviceServiceForwarder) UpdateObservationPointConfig(ctx context.Context, req *v1.UpdateObservationPointConfigRequest) (*v1.UpdateObservationPointConfigResponse, error) {
 	return forward.Unary(ctx, req, f.client.UpdateObservationPointConfig)
 }
 
@@ -46,10 +45,10 @@ type toloObservationV1ObservationSettingsServiceForwarder struct {
 	client observationv1connect.ObservationSettingsServiceClient
 }
 
-func (f *toloObservationV1ObservationSettingsServiceForwarder) GetObservationSettings(ctx context.Context, req *connect.Request[v1.GetObservationSettingsRequest]) (*connect.Response[v1.GetObservationSettingsResponse], error) {
+func (f *toloObservationV1ObservationSettingsServiceForwarder) GetObservationSettings(ctx context.Context, req *v1.GetObservationSettingsRequest) (*v1.GetObservationSettingsResponse, error) {
 	return forward.Unary(ctx, req, f.client.GetObservationSettings)
 }
 
-func (f *toloObservationV1ObservationSettingsServiceForwarder) UpdateObservationSettings(ctx context.Context, req *connect.Request[v1.UpdateObservationSettingsRequest]) (*connect.Response[v1.UpdateObservationSettingsResponse], error) {
+func (f *toloObservationV1ObservationSettingsServiceForwarder) UpdateObservationSettings(ctx context.Context, req *v1.UpdateObservationSettingsRequest) (*v1.UpdateObservationSettingsResponse, error) {
 	return forward.Unary(ctx, req, f.client.UpdateObservationSettings)
 }

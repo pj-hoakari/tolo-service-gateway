@@ -5,11 +5,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+	"connectrpc.com/connect/v2/connectproto"
 
 	greetv1 "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1"
 	"github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
@@ -17,69 +20,112 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 )
 
-type pingFunc func(context.Context, *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error)
+type pingFunc func(context.Context, *greetv1.PingRequest) (*greetv1.PingResponse, error)
 
 type stubGreetService struct {
 	greetv1connect.UnimplementedGreetServiceHandler
 	ping pingFunc
 }
 
-func (s stubGreetService) Ping(ctx context.Context, req *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+func (s stubGreetService) Ping(ctx context.Context, req *greetv1.PingRequest) (*greetv1.PingResponse, error) {
 	return s.ping(ctx, req)
 }
 
-func pong() *connectrpc.Response[greetv1.PingResponse] {
-	return connectrpc.NewResponse(&greetv1.PingResponse{Message: "pong"})
+func pong() *greetv1.PingResponse {
+	return &greetv1.PingResponse{Message: "pong"}
+}
+
+func serveGreet(t *testing.T, handler greetv1connect.GreetServiceHandler, interceptors ...connectrpc.ServerInterceptor) *httptest.Server {
+	t.Helper()
+
+	server := connectrpc.NewServer(interceptors...)
+	greetv1connect.RegisterGreetServiceHandler(server, handler)
+
+	mux := http.NewServeMux()
+	connecthttp.Mount(mux, server)
+
+	httpServer := httptest.NewServer(mux)
+	t.Cleanup(httpServer.Close)
+
+	return httpServer
 }
 
 func startUpstream(t *testing.T, ping pingFunc) (greetv1connect.GreetServiceClient, *httptest.Server) {
 	t.Helper()
 
-	mux := http.NewServeMux()
-	path, handler := greetv1connect.NewGreetServiceHandler(stubGreetService{
+	server := serveGreet(t, stubGreetService{
 		UnimplementedGreetServiceHandler: greetv1connect.UnimplementedGreetServiceHandler{},
 		ping:                             ping,
 	})
-	mux.Handle(path, handler)
 
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
-
-	client := greetv1connect.NewGreetServiceClient(forward.NewHTTPClient(http.DefaultTransport), server.URL)
+	client := greetv1connect.NewGreetServiceClient(connectrpc.NewClient(connecthttp.NewTransport(forward.NewHTTPClient(http.DefaultTransport), server.URL)))
 
 	return client, server
 }
 
-func callPing(ctx context.Context, client greetv1connect.GreetServiceClient, req *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+func callPing(ctx context.Context, client greetv1connect.GreetServiceClient, req *greetv1.PingRequest) (*greetv1.PingResponse, error) {
 	return forward.Unary(ctx, req, client.Ping)
+}
+
+type forwardingGreetService struct {
+	greetv1connect.UnimplementedGreetServiceHandler
+	upstream greetv1connect.GreetServiceClient
+}
+
+func (s forwardingGreetService) Ping(ctx context.Context, req *greetv1.PingRequest) (*greetv1.PingResponse, error) {
+	return forward.Unary(ctx, req, s.upstream.Ping)
+}
+
+func startForwarder(t *testing.T, upstream greetv1connect.GreetServiceClient) greetv1connect.GreetServiceClient {
+	t.Helper()
+
+	server := serveGreet(t, forwardingGreetService{
+		UnimplementedGreetServiceHandler: greetv1connect.UnimplementedGreetServiceHandler{},
+		upstream:                         upstream,
+	})
+
+	return greetv1connect.NewGreetServiceClient(connectrpc.NewClient(connecthttp.NewTransport(server.Client(), server.URL)))
+}
+
+func requestHeaderOf(ctx context.Context) http.Header {
+	header := make(http.Header)
+
+	info, _ := connectrpc.CallInfoForServerContext(ctx)
+	for key, values := range info.RequestHeader().All() {
+		header[http.CanonicalHeaderKey(key)] = slices.Clone(values)
+	}
+
+	return header
 }
 
 func TestUnaryReturnsTheUpstreamMessageWithoutItsMetadata(t *testing.T) {
 	t.Parallel()
 
-	client, _ := startUpstream(t, func(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
-		res := pong()
-		res.Header().Set("X-Upstream-Header", "leaked")
-		res.Trailer().Set("X-Upstream-Trailer", "leaked")
+	upstream, _ := startUpstream(t, func(ctx context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
+		info, _ := connectrpc.CallInfoForServerContext(ctx)
+		info.ResponseHeader().Set("X-Upstream-Header", "leaked")
+		info.ResponseTrailer().Set("X-Upstream-Trailer", "leaked")
 
-		return res, nil
+		return pong(), nil
 	})
 
-	res, err := callPing(t.Context(), client, connectrpc.NewRequest(&greetv1.PingRequest{}))
+	ctx, info := connectrpc.NewClientContext(t.Context())
+
+	res, err := startForwarder(t, upstream).Ping(ctx, &greetv1.PingRequest{})
 	if err != nil {
-		t.Fatalf("Unary() error = %v, want nil", err)
+		t.Fatalf("Ping() error = %v, want nil", err)
 	}
 
-	if got, want := res.Msg.GetMessage(), "pong"; got != want {
+	if got, want := res.GetMessage(), "pong"; got != want {
 		t.Errorf("message = %q, want %q", got, want)
 	}
 
-	if got := len(res.Header()); got != 0 {
-		t.Errorf("response headers = %v, want none", res.Header())
+	if info.ResponseHeader().Has("X-Upstream-Header") {
+		t.Errorf("response headers = %v, want no upstream header", info.ResponseHeader())
 	}
 
-	if got := len(res.Trailer()); got != 0 {
-		t.Errorf("response trailers = %v, want none", res.Trailer())
+	if info.ResponseTrailer().Has("X-Upstream-Trailer") {
+		t.Errorf("response trailers = %v, want no upstream trailer", info.ResponseTrailer())
 	}
 }
 
@@ -88,18 +134,18 @@ func TestUnaryDoesNotForwardTheRequestHeaders(t *testing.T) {
 
 	seen := make(chan http.Header, 1)
 
-	client, _ := startUpstream(t, func(_ context.Context, req *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
-		seen <- req.Header().Clone()
+	upstream, _ := startUpstream(t, func(ctx context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
+		seen <- requestHeaderOf(ctx)
 
 		return pong(), nil
 	})
 
-	req := connectrpc.NewRequest(&greetv1.PingRequest{})
-	req.Header().Set("Authorization", "Bearer outside")
-	req.Header().Set("X-Request-Id", "outside")
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	info.RequestHeader().Set("Authorization", "Bearer outside")
+	info.RequestHeader().Set("X-Request-Id", "outside")
 
-	if _, err := callPing(t.Context(), client, req); err != nil {
-		t.Fatalf("Unary() error = %v, want nil", err)
+	if _, err := startForwarder(t, upstream).Ping(ctx, &greetv1.PingRequest{}); err != nil {
+		t.Fatalf("Ping() error = %v, want nil", err)
 	}
 
 	header := <-seen
@@ -114,7 +160,7 @@ func TestUnaryDoesNotForwardTheRequestHeaders(t *testing.T) {
 func TestUnaryTranslatesUpstreamErrors(t *testing.T) {
 	t.Parallel()
 
-	detail, err := connectrpc.NewErrorDetail(&greetv1.PingResponse{Message: "detail"})
+	detail, err := connectproto.NewErrorDetail(&greetv1.PingResponse{Message: "detail"})
 	if err != nil {
 		t.Fatalf("NewErrorDetail() error = %v, want nil", err)
 	}
@@ -126,25 +172,25 @@ func TestUnaryTranslatesUpstreamErrors(t *testing.T) {
 		wantDetails int
 	}{
 		"an invalid argument keeps its code, message and details": {
-			upstream:    connectrpc.NewError(connectrpc.CodeInvalidArgument, errors.New("name is required")),
+			upstream:    connectrpc.NewError(connectrpc.CodeInvalidArgument, "name is required"),
 			wantCode:    connectrpc.CodeInvalidArgument,
 			wantMessage: "name is required",
 			wantDetails: 1,
 		},
 		"a permission denial keeps its code and message": {
-			upstream:    connectrpc.NewError(connectrpc.CodePermissionDenied, errors.New("no scope")),
+			upstream:    connectrpc.NewError(connectrpc.CodePermissionDenied, "no scope"),
 			wantCode:    connectrpc.CodePermissionDenied,
 			wantMessage: "no scope",
 			wantDetails: 0,
 		},
 		"an internal failure loses its message": {
-			upstream:    connectrpc.NewError(connectrpc.CodeInternal, errors.New("the store rejected the query")), //nolint:forbidigo // the upstream code under test, not an internal error built here
-			wantCode:    connectrpc.CodeInternal,                                                                  //nolint:forbidigo // the expected code of the translation
+			upstream:    connectrpc.NewError(connectrpc.CodeInternal, "the store rejected the query"), //nolint:forbidigo // the upstream code under test, not an internal error built here
+			wantCode:    connectrpc.CodeInternal,                                                      //nolint:forbidigo // the expected code of the translation
 			wantMessage: "internal error",
 			wantDetails: 0,
 		},
 		"an unknown failure loses its message": {
-			upstream:    connectrpc.NewError(connectrpc.CodeUnknown, errors.New("panic in the store")),
+			upstream:    connectrpc.NewError(connectrpc.CodeUnknown, "panic in the store"),
 			wantCode:    connectrpc.CodeInternal, //nolint:forbidigo // the expected code of the translation
 			wantMessage: "internal error",
 			wantDetails: 0,
@@ -156,17 +202,16 @@ func TestUnaryTranslatesUpstreamErrors(t *testing.T) {
 			t.Parallel()
 
 			upstream := test.upstream
-			upstream.Meta().Set("X-Upstream-Meta", "leaked")
 
 			if test.wantDetails > 0 {
-				upstream.AddDetail(detail)
+				upstream = upstream.WithDetail(detail)
 			}
 
-			client, _ := startUpstream(t, func(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+			client, _ := startUpstream(t, func(_ context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
 				return nil, upstream
 			})
 
-			_, err := callPing(t.Context(), client, connectrpc.NewRequest(&greetv1.PingRequest{}))
+			_, err := callPing(t.Context(), client, &greetv1.PingRequest{})
 
 			got := connectError(t, err)
 
@@ -181,10 +226,6 @@ func TestUnaryTranslatesUpstreamErrors(t *testing.T) {
 			if len(got.Details()) != test.wantDetails {
 				t.Errorf("details = %d, want %d", len(got.Details()), test.wantDetails)
 			}
-
-			if len(got.Meta()) != 0 {
-				t.Errorf("metadata = %v, want none", got.Meta())
-			}
 		})
 	}
 }
@@ -192,12 +233,12 @@ func TestUnaryTranslatesUpstreamErrors(t *testing.T) {
 func TestUnaryAnswersAnUnreachableUpstreamWithUnavailable(t *testing.T) {
 	t.Parallel()
 
-	client, server := startUpstream(t, func(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+	client, server := startUpstream(t, func(_ context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
 		return pong(), nil
 	})
 	server.Close()
 
-	_, err := callPing(t.Context(), client, connectrpc.NewRequest(&greetv1.PingRequest{}))
+	_, err := callPing(t.Context(), client, &greetv1.PingRequest{})
 
 	got := connectError(t, err)
 
@@ -220,7 +261,7 @@ func TestUnaryReportsACancelledCallAsCancelled(t *testing.T) {
 
 	released := make(chan struct{})
 
-	client, _ := startUpstream(t, func(ctx context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+	client, _ := startUpstream(t, func(ctx context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
 		<-released
 
 		return pong(), ctx.Err()
@@ -233,7 +274,7 @@ func TestUnaryReportsACancelledCallAsCancelled(t *testing.T) {
 		close(released)
 	}()
 
-	_, err := callPing(ctx, client, connectrpc.NewRequest(&greetv1.PingRequest{}))
+	_, err := callPing(ctx, client, &greetv1.PingRequest{})
 
 	got := connectError(t, err)
 
@@ -270,7 +311,7 @@ func TestUnaryAppliesADeadlineOnlyWhenTheCallerHasNone(t *testing.T) {
 
 			remaining := make(chan time.Duration, 1)
 
-			client, _ := startUpstream(t, func(ctx context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+			client, _ := startUpstream(t, func(ctx context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
 				deadline, ok := ctx.Deadline()
 				if !ok {
 					remaining <- 0
@@ -292,7 +333,7 @@ func TestUnaryAppliesADeadlineOnlyWhenTheCallerHasNone(t *testing.T) {
 				ctx = withTimeout
 			}
 
-			if _, err := callPing(ctx, client, connectrpc.NewRequest(&greetv1.PingRequest{})); err != nil {
+			if _, err := callPing(ctx, client, &greetv1.PingRequest{}); err != nil {
 				t.Fatalf("Unary() error = %v, want nil", err)
 			}
 
@@ -314,7 +355,7 @@ func failureReasonOf(t *testing.T, ctx context.Context, client greetv1connect.Gr
 
 	record := &audit.Record{}
 
-	_, err := callPing(audit.NewContext(ctx, record), client, connectrpc.NewRequest(&greetv1.PingRequest{}))
+	_, err := callPing(audit.NewContext(ctx, record), client, &greetv1.PingRequest{})
 	if err == nil {
 		t.Fatal("Unary() error = nil, want an error")
 	}
@@ -330,51 +371,51 @@ func TestUnaryNamesTheFailureReasonInTheAuditRecord(t *testing.T) {
 		want     string
 	}{
 		"an internal failure": {
-			upstream: connectrpc.NewError(connectrpc.CodeInternal, errors.New("the store rejected the query")), //nolint:forbidigo // the upstream code under test, not an internal error built here
+			upstream: connectrpc.NewError(connectrpc.CodeInternal, "the store rejected the query"), //nolint:forbidigo // the upstream code under test, not an internal error built here
 			want:     "upstream_internal",
 		},
 		"an unknown failure": {
-			upstream: connectrpc.NewError(connectrpc.CodeUnknown, errors.New("panic in the store")),
+			upstream: connectrpc.NewError(connectrpc.CodeUnknown, "panic in the store"),
 			want:     "upstream_internal",
 		},
 		"an invalid argument": {
-			upstream: connectrpc.NewError(connectrpc.CodeInvalidArgument, errors.New("name is required")),
+			upstream: connectrpc.NewError(connectrpc.CodeInvalidArgument, "name is required"),
 			want:     "upstream_refused",
 		},
 		"a missing resource": {
-			upstream: connectrpc.NewError(connectrpc.CodeNotFound, errors.New("tenant not found")),
+			upstream: connectrpc.NewError(connectrpc.CodeNotFound, "tenant not found"),
 			want:     "upstream_refused",
 		},
 		"a denied permission": {
-			upstream: connectrpc.NewError(connectrpc.CodePermissionDenied, errors.New("current permission denied")),
+			upstream: connectrpc.NewError(connectrpc.CodePermissionDenied, "current permission denied"),
 			want:     "upstream_refused",
 		},
 		"a failed precondition": {
-			upstream: connectrpc.NewError(connectrpc.CodeFailedPrecondition, errors.New("tenant is archived")),
+			upstream: connectrpc.NewError(connectrpc.CodeFailedPrecondition, "tenant is archived"),
 			want:     "upstream_refused",
 		},
 		"an already existing resource": {
-			upstream: connectrpc.NewError(connectrpc.CodeAlreadyExists, errors.New("member already exists")),
+			upstream: connectrpc.NewError(connectrpc.CodeAlreadyExists, "member already exists"),
 			want:     "upstream_refused",
 		},
 		"an unavailable upstream dependency": {
-			upstream: connectrpc.NewError(connectrpc.CodeUnavailable, errors.New("the store is down")),
+			upstream: connectrpc.NewError(connectrpc.CodeUnavailable, "the store is down"),
 			want:     "upstream_error",
 		},
 		"an exhausted upstream": {
-			upstream: connectrpc.NewError(connectrpc.CodeResourceExhausted, errors.New("too many requests")),
+			upstream: connectrpc.NewError(connectrpc.CodeResourceExhausted, "too many requests"),
 			want:     "upstream_error",
 		},
 		"a procedure the upstream lacks": {
-			upstream: connectrpc.NewError(connectrpc.CodeUnimplemented, errors.New("unknown procedure")),
+			upstream: connectrpc.NewError(connectrpc.CodeUnimplemented, "unknown procedure"),
 			want:     "upstream_error",
 		},
 		"a cancelled upstream": {
-			upstream: connectrpc.NewError(connectrpc.CodeCanceled, errors.New("the caller went away")),
+			upstream: connectrpc.NewError(connectrpc.CodeCanceled, "the caller went away"),
 			want:     "canceled",
 		},
 		"an upstream past its deadline": {
-			upstream: connectrpc.NewError(connectrpc.CodeDeadlineExceeded, errors.New("too slow")),
+			upstream: connectrpc.NewError(connectrpc.CodeDeadlineExceeded, "too slow"),
 			want:     "deadline_exceeded",
 		},
 	}
@@ -383,7 +424,7 @@ func TestUnaryNamesTheFailureReasonInTheAuditRecord(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			client, _ := startUpstream(t, func(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+			client, _ := startUpstream(t, func(_ context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
 				return nil, test.upstream
 			})
 
@@ -397,7 +438,7 @@ func TestUnaryNamesTheFailureReasonInTheAuditRecord(t *testing.T) {
 func TestUnaryNamesAnUnreachableUpstreamInTheAuditRecord(t *testing.T) {
 	t.Parallel()
 
-	client, server := startUpstream(t, func(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+	client, server := startUpstream(t, func(_ context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
 		return pong(), nil
 	})
 	server.Close()
@@ -410,12 +451,12 @@ func TestUnaryNamesAnUnreachableUpstreamInTheAuditRecord(t *testing.T) {
 func TestUnaryLeavesTheAuditRecordAloneWhenThereIsNone(t *testing.T) {
 	t.Parallel()
 
-	client, server := startUpstream(t, func(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
+	client, server := startUpstream(t, func(_ context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
 		return pong(), nil
 	})
 	server.Close()
 
-	if _, err := callPing(t.Context(), client, connectrpc.NewRequest(&greetv1.PingRequest{})); err == nil {
+	if _, err := callPing(t.Context(), client, &greetv1.PingRequest{}); err == nil {
 		t.Fatal("Unary() error = nil, want an error")
 	}
 }
@@ -423,21 +464,15 @@ func TestUnaryLeavesTheAuditRecordAloneWhenThereIsNone(t *testing.T) {
 func startAuthorizingUpstream(t *testing.T, ping pingFunc) greetv1connect.GreetServiceClient {
 	t.Helper()
 
-	mux := http.NewServeMux()
-	path, handler := greetv1connect.NewGreetServiceHandler(stubGreetService{
+	server := serveGreet(t, stubGreetService{
 		UnimplementedGreetServiceHandler: greetv1connect.UnimplementedGreetServiceHandler{},
 		ping:                             ping,
 	})
-	mux.Handle(path, handler)
 
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
-
-	return greetv1connect.NewGreetServiceClient(
-		forward.NewHTTPClient(http.DefaultTransport),
-		server.URL,
-		connectrpc.WithInterceptors(forward.AuthorizationInterceptor()),
-	)
+	return greetv1connect.NewGreetServiceClient(connectrpc.NewClient(
+		connecthttp.NewTransport(forward.NewHTTPClient(http.DefaultTransport), server.URL),
+		forward.AuthorizationInterceptor(),
+	))
 }
 
 func TestAuthorizationInterceptorCarriesTheInternalTokenOnly(t *testing.T) {
@@ -467,17 +502,28 @@ func TestAuthorizationInterceptorCarriesTheInternalTokenOnly(t *testing.T) {
 
 			seen := make(chan http.Header, 1)
 
-			client := startAuthorizingUpstream(t, func(_ context.Context, req *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
-				seen <- req.Header().Clone()
+			upstream := startAuthorizingUpstream(t, func(ctx context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
+				seen <- requestHeaderOf(ctx)
 
 				return pong(), nil
 			})
 
-			req := connectrpc.NewRequest(&greetv1.PingRequest{})
-			req.Header().Set("Authorization", "Bearer external-token-a")
+			forwarder := serveGreet(t, forwardingGreetService{
+				UnimplementedGreetServiceHandler: greetv1connect.UnimplementedGreetServiceHandler{},
+				upstream:                         upstream,
+			}, func(next connectrpc.ServerFunc) connectrpc.ServerFunc {
+				return func(ctx context.Context, spec connectrpc.Spec, stream connectrpc.ServerStream) error {
+					return next(test.ctx(ctx), spec, stream)
+				}
+			})
 
-			if _, err := callPing(test.ctx(t.Context()), client, req); err != nil {
-				t.Fatalf("Unary() error = %v, want nil", err)
+			ctx, info := connectrpc.NewClientContext(t.Context())
+			info.RequestHeader().Set("Authorization", "Bearer external-token-a")
+
+			client := greetv1connect.NewGreetServiceClient(connectrpc.NewClient(connecthttp.NewTransport(forwarder.Client(), forwarder.URL)))
+
+			if _, err := client.Ping(ctx, &greetv1.PingRequest{}); err != nil {
+				t.Fatalf("Ping() error = %v, want nil", err)
 			}
 
 			if got := (<-seen).Get("Authorization"); got != test.want {
@@ -513,13 +559,13 @@ func TestUnaryTreatsAnUpstreamRejectionOfTheInternalTokenAsInternal(t *testing.T
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			client := startAuthorizingUpstream(t, func(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
-				return nil, connectrpc.NewError(connectrpc.CodeUnauthenticated, errors.New("the internal JWT was rejected"))
+			client := startAuthorizingUpstream(t, func(_ context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
+				return nil, connectrpc.NewError(connectrpc.CodeUnauthenticated, "the internal JWT was rejected")
 			})
 
 			record := &audit.Record{}
 
-			_, err := callPing(audit.NewContext(test.ctx(t.Context()), record), client, connectrpc.NewRequest(&greetv1.PingRequest{}))
+			_, err := callPing(audit.NewContext(test.ctx(t.Context()), record), client, &greetv1.PingRequest{})
 
 			if got := connectError(t, err).Code(); got != test.wantCode {
 				t.Errorf("code = %v, want %v", got, test.wantCode)
@@ -541,7 +587,7 @@ func connectError(t *testing.T, err error) *connectrpc.Error {
 
 	var got *connectrpc.Error
 	if !errors.As(err, &got) {
-		t.Fatalf("Unary() error = %v, want a *connect.Error", err)
+		t.Fatalf("Unary() error = %v, want a *connectrpc.Error", err)
 	}
 
 	return got

@@ -17,7 +17,9 @@ import (
 	"testing"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+	"connectrpc.com/connect/v2/connectproto"
 	"connectrpc.com/otelconnect"
 	"github.com/golang-jwt/jwt/v5"
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
@@ -67,28 +69,49 @@ type upstreamCall struct {
 type upstreamGreetService struct {
 	greetv1connect.UnimplementedGreetServiceHandler
 	records chan upstreamCall
+	failure error
 }
 
-func (s upstreamGreetService) record(ctx context.Context, req connectrpc.AnyRequest) {
+func (s upstreamGreetService) record(ctx context.Context) {
 	remaining := time.Duration(0)
 
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining = time.Until(deadline)
 	}
 
-	s.records <- upstreamCall{remaining: remaining, header: req.Header().Clone()}
+	s.records <- upstreamCall{remaining: remaining, header: requestHeaderOf(ctx)}
 }
 
-func (s upstreamGreetService) Ping(ctx context.Context, req *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
-	s.record(ctx, req)
+func httpHeaderOf(header *connectrpc.Header) http.Header {
+	converted := make(http.Header)
 
-	return connectrpc.NewResponse(&greetv1.PingResponse{Message: "pong"}), nil
+	for key, values := range header.All() {
+		converted[http.CanonicalHeaderKey(key)] = slices.Clone(values)
+	}
+
+	return converted
 }
 
-func (s upstreamGreetService) Greet(ctx context.Context, req *connectrpc.Request[greetv1.GreetRequest]) (*connectrpc.Response[greetv1.GreetResponse], error) {
-	s.record(ctx, req)
+func requestHeaderOf(ctx context.Context) http.Header {
+	info, _ := connectrpc.CallInfoForServerContext(ctx)
 
-	return connectrpc.NewResponse(&greetv1.GreetResponse{Greeting: "Hello!"}), nil
+	return httpHeaderOf(info.RequestHeader())
+}
+
+func (s upstreamGreetService) Ping(ctx context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
+	s.record(ctx)
+
+	if s.failure != nil {
+		return nil, s.failure
+	}
+
+	return &greetv1.PingResponse{Message: "pong"}, nil
+}
+
+func (s upstreamGreetService) Greet(ctx context.Context, _ *greetv1.GreetRequest) (*greetv1.GreetResponse, error) {
+	s.record(ctx)
+
+	return &greetv1.GreetResponse{Greeting: "Hello!"}, nil
 }
 
 type gatewayFixture struct {
@@ -102,14 +125,23 @@ type gatewayFixture struct {
 func newGateway(t *testing.T) gatewayFixture {
 	t.Helper()
 
+	return newGatewayWithUpstreamFailure(t, nil)
+}
+
+func newGatewayWithUpstreamFailure(t *testing.T, failure error) gatewayFixture {
+	t.Helper()
+
 	records := make(chan upstreamCall, 8)
 
-	mux := http.NewServeMux()
-	path, handler := greetv1connect.NewGreetServiceHandler(upstreamGreetService{
+	server := connectrpc.NewServer()
+	greetv1connect.RegisterGreetServiceHandler(server, upstreamGreetService{
 		UnimplementedGreetServiceHandler: greetv1connect.UnimplementedGreetServiceHandler{},
 		records:                          records,
+		failure:                          failure,
 	})
-	mux.Handle(path, handler)
+
+	mux := http.NewServeMux()
+	connecthttp.Mount(mux, server)
 
 	upstream := httptest.NewServer(mux)
 	t.Cleanup(upstream.Close)
@@ -121,12 +153,12 @@ func newGateway(t *testing.T) gatewayFixture {
 
 	provider := sdktrace.NewTracerProvider()
 
-	tracing, err := otelconnect.NewInterceptor(
+	tracing, err := otelconnect.NewClientInterceptor(
 		otelconnect.WithTracerProvider(provider),
 		otelconnect.WithPropagator(propagation.TraceContext{}),
 	)
 	if err != nil {
-		t.Fatalf("NewInterceptor() error = %v, want nil", err)
+		t.Fatalf("NewClientInterceptor() error = %v, want nil", err)
 	}
 
 	handlers, err := forward.Handlers(
@@ -134,8 +166,8 @@ func newGateway(t *testing.T) gatewayFixture {
 		destinationsTo(t, upstream.URL),
 		forwardgen.Mounts(),
 		forward.NewHTTPClient(http.DefaultTransport),
-		[]connectrpc.ClientOption{connectrpc.WithInterceptors(tracing)},
-		[]connectrpc.HandlerOption{connectrpc.WithInterceptors(infraconnect.AuditInterceptor())},
+		[]connectrpc.ClientInterceptor{tracing},
+		[]connectrpc.ServerInterceptor{infraconnect.AuditInterceptor()},
 	)
 	if err != nil {
 		t.Fatalf("Handlers() error = %v, want nil", err)
@@ -158,7 +190,7 @@ func newGateway(t *testing.T) gatewayFixture {
 	t.Cleanup(gateway.Close)
 
 	return gatewayFixture{
-		client:     greetv1connect.NewGreetServiceClient(gateway.Client(), gateway.URL),
+		client:     greetv1connect.NewGreetServiceClient(connectrpc.NewClient(connecthttp.NewTransport(gateway.Client(), gateway.URL))),
 		gatewayURL: gateway.URL,
 		upstream:   upstream,
 		records:    records,
@@ -191,7 +223,7 @@ func gatewayError(t *testing.T, err error) *connectrpc.Error {
 
 	var got *connectrpc.Error
 	if !errors.As(err, &got) {
-		t.Fatalf("error = %v, want a *connect.Error", err)
+		t.Fatalf("error = %v, want a *connectrpc.Error", err)
 	}
 
 	return got
@@ -202,12 +234,12 @@ func TestGatewayForwardsAnonymousProcedures(t *testing.T) {
 
 	fixture := newGateway(t)
 
-	res, err := fixture.client.Ping(t.Context(), connectrpc.NewRequest(&greetv1.PingRequest{}))
+	res, err := fixture.client.Ping(t.Context(), &greetv1.PingRequest{})
 	if err != nil {
 		t.Fatalf("Ping() error = %v, want nil", err)
 	}
 
-	if got, want := res.Msg.GetMessage(), "pong"; got != want {
+	if got, want := res.GetMessage(), "pong"; got != want {
 		t.Errorf("message = %q, want %q", got, want)
 	}
 
@@ -227,7 +259,7 @@ func TestGatewayStopsAuthenticatedProceduresBeforeTheUpstream(t *testing.T) {
 
 	fixture := newGateway(t)
 
-	_, err := fixture.client.Greet(t.Context(), connectrpc.NewRequest(&greetv1.GreetRequest{Name: "tolo"}))
+	_, err := fixture.client.Greet(t.Context(), &greetv1.GreetRequest{Name: "tolo"})
 
 	if got, want := gatewayError(t, err).Code(), connectrpc.CodeUnauthenticated; got != want {
 		t.Errorf("code = %v, want %v", got, want)
@@ -248,7 +280,7 @@ func TestGatewayCarriesTheClientDeadlineToTheUpstream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 
-	if _, err := fixture.client.Ping(ctx, connectrpc.NewRequest(&greetv1.PingRequest{})); err != nil {
+	if _, err := fixture.client.Ping(ctx, &greetv1.PingRequest{}); err != nil {
 		t.Fatalf("Ping() error = %v, want nil", err)
 	}
 
@@ -265,7 +297,7 @@ func TestGatewayAnswersAnUnreachableUpstreamWithUnavailable(t *testing.T) {
 	fixture := newGateway(t)
 	fixture.upstream.Close()
 
-	_, err := fixture.client.Ping(t.Context(), connectrpc.NewRequest(&greetv1.PingRequest{}))
+	_, err := fixture.client.Ping(t.Context(), &greetv1.PingRequest{})
 
 	got := gatewayError(t, err)
 
@@ -281,6 +313,50 @@ func TestGatewayAnswersAnUnreachableUpstreamWithUnavailable(t *testing.T) {
 		"method":         anonymousProcedure,
 		"result":         "unavailable",
 		"failure_reason": "upstream_unreachable",
+	})
+}
+
+func TestGatewayRelaysTheUpstreamErrorWithItsDetails(t *testing.T) {
+	t.Parallel()
+
+	detail, err := connectproto.NewErrorDetail(&greetv1.PingResponse{Message: "detail"})
+	if err != nil {
+		t.Fatalf("NewErrorDetail() error = %v, want nil", err)
+	}
+
+	fixture := newGatewayWithUpstreamFailure(t, connectrpc.NewError(connectrpc.CodeFailedPrecondition, "tenant is archived").WithDetail(detail))
+
+	_, err = fixture.client.Ping(t.Context(), &greetv1.PingRequest{})
+
+	got := gatewayError(t, err)
+
+	if got.Code() != connectrpc.CodeFailedPrecondition {
+		t.Errorf("code = %v, want %v", got.Code(), connectrpc.CodeFailedPrecondition)
+	}
+
+	if got.Message() != "tenant is archived" {
+		t.Errorf("message = %q, want %q", got.Message(), "tenant is archived")
+	}
+
+	details := got.Details()
+	if len(details) != 1 {
+		t.Fatalf("details = %d, want 1", len(details))
+	}
+
+	relayed, err := connectproto.UnmarshalErrorDetail(details[0])
+	if err != nil {
+		t.Fatalf("UnmarshalErrorDetail() error = %v, want nil", err)
+	}
+
+	message, ok := relayed.(*greetv1.PingResponse)
+	if !ok || message.GetMessage() != "detail" {
+		t.Errorf("detail = %v, want the upstream PingResponse with message %q", relayed, "detail")
+	}
+
+	assertAudit(t, singleAuditRecord(t, fixture.audit), map[string]any{
+		"method":         anonymousProcedure,
+		"result":         "failed_precondition",
+		"failure_reason": "upstream_refused",
 	})
 }
 
@@ -320,15 +396,14 @@ func TestGatewayGivesTheUpstreamItsOwnTraceContext(t *testing.T) {
 
 	fixture := newGateway(t)
 
-	req := connectrpc.NewRequest(&greetv1.PingRequest{})
-	req.Header().Set("Traceparent", clientTraceparent)
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	info.RequestHeader().Set("Traceparent", clientTraceparent)
 
-	res, err := fixture.client.Ping(t.Context(), req)
-	if err != nil {
+	if _, err := fixture.client.Ping(ctx, &greetv1.PingRequest{}); err != nil {
 		t.Fatalf("Ping() error = %v, want nil", err)
 	}
 
-	assertNoCorrelationHeaders(t, res.Header())
+	assertNoCorrelationHeaders(t, httpHeaderOf(info.ResponseHeader()))
 
 	call := <-fixture.records
 
@@ -458,8 +533,8 @@ func newVerifyingGatewayWith(t *testing.T, authenticator *authn.Authenticator, b
 		destinationsTo(t, backendURL),
 		forwardgen.Mounts(),
 		forward.NewHTTPClient(http.DefaultTransport),
-		[]connectrpc.ClientOption{connectrpc.WithInterceptors(forward.AuthorizationInterceptor())},
-		[]connectrpc.HandlerOption{connectrpc.WithInterceptors(infraconnect.AuditInterceptor())},
+		[]connectrpc.ClientInterceptor{forward.AuthorizationInterceptor()},
+		[]connectrpc.ServerInterceptor{infraconnect.AuditInterceptor()},
 	)
 	if err != nil {
 		t.Fatalf("Handlers() error = %v, want nil", err)
@@ -484,20 +559,20 @@ func newVerifyingGatewayWith(t *testing.T, authenticator *authn.Authenticator, b
 	t.Cleanup(gateway.Close)
 
 	return verifyingFixture{
-		client:     greetv1connect.NewGreetServiceClient(gateway.Client(), gateway.URL),
+		client:     greetv1connect.NewGreetServiceClient(connectrpc.NewClient(connecthttp.NewTransport(gateway.Client(), gateway.URL))),
 		gatewayURL: gateway.URL,
 		headers:    headers,
 		audit:      logs,
 	}
 }
 
-func greetWith(t *testing.T, fixture verifyingFixture, token string) (*connectrpc.Response[greetv1.GreetResponse], error) {
+func greetWith(t *testing.T, fixture verifyingFixture, token string) (*greetv1.GreetResponse, error) {
 	t.Helper()
 
-	req := connectrpc.NewRequest(&greetv1.GreetRequest{Name: "tolo"})
-	req.Header().Set("Authorization", "Bearer "+token)
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	info.RequestHeader().Set("Authorization", "Bearer "+token)
 
-	return fixture.client.Greet(t.Context(), req) //nolint:wrapcheck // the test asserts on the error the gateway returns
+	return fixture.client.Greet(ctx, &greetv1.GreetRequest{Name: "tolo"}) //nolint:wrapcheck // the test asserts on the error the gateway returns
 }
 
 func TestGatewayExchangesAnExternalTokenTheUpstreamAccepts(t *testing.T) {
@@ -510,7 +585,7 @@ func TestGatewayExchangesAnExternalTokenTheUpstreamAccepts(t *testing.T) {
 		t.Fatalf("Greet() error = %v, want nil", err)
 	}
 
-	if got, want := res.Msg.GetGreeting(), "Hello, tolo!"; got != want {
+	if got, want := res.GetGreeting(), "Hello, tolo!"; got != want {
 		t.Errorf("greeting = %q, want %q", got, want)
 	}
 
@@ -821,7 +896,7 @@ func TestGatewayForwardsACallAuthenticatedByTheIDP(t *testing.T) {
 		t.Fatalf("Greet() error = %v, want nil", err)
 	}
 
-	if got, want := res.Msg.GetGreeting(), "Hello, tolo!"; got != want {
+	if got, want := res.GetGreeting(), "Hello, tolo!"; got != want {
 		t.Errorf("greeting = %q, want %q", got, want)
 	}
 
@@ -878,12 +953,12 @@ func TestGatewayStopsTokensTheIDPIssuedOutsideTheSpecifiedShape(t *testing.T) {
 func createEventWith(t *testing.T, fixture verifyingFixture, token string) error {
 	t.Helper()
 
-	client := tenantv1connect.NewTenantServiceClient(http.DefaultClient, fixture.gatewayURL)
+	client := tenantv1connect.NewTenantServiceClient(connectrpc.NewClient(connecthttp.NewTransport(http.DefaultClient, fixture.gatewayURL)))
 
-	req := connectrpc.NewRequest(&tenantv1.CreateEventRequest{})
-	req.Header().Set("Authorization", "Bearer "+token)
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	info.RequestHeader().Set("Authorization", "Bearer "+token)
 
-	_, err := client.CreateEvent(t.Context(), req)
+	_, err := client.CreateEvent(ctx, &tenantv1.CreateEventRequest{})
 
 	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
 }

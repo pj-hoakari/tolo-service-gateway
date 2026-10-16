@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/catalog"

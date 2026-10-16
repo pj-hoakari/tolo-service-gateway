@@ -3,7 +3,7 @@ module github.com/pj-hoakari/tolo-service-gateway
 go 1.27.2
 
 tool (
-	connectrpc.com/connect/cmd/protoc-gen-connect-go
+	connectrpc.com/connect/v2/cmd/protoc-gen-connect-go
 	github.com/pj-hoakari/internal-jwt-handling/cmd/jwtgen
 	github.com/pj-hoakari/protoc-gen-authz-go/cmd/protoc-gen-authz-go
 	go.uber.org/mock/mockgen
@@ -11,16 +11,16 @@ tool (
 )
 
 require (
-	connectrpc.com/connect v1.21.0
-	connectrpc.com/otelconnect v0.10.0
+	connectrpc.com/connect/v2 v2.0.1
+	connectrpc.com/otelconnect v0.12.0
 	github.com/go-logr/logr v1.4.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/pj-hoakari/internal-jwt-handling v0.2.0
+	github.com/pj-hoakari/internal-jwt-handling v0.3.0
 	github.com/pj-hoakari/protoc-gen-authz-go v0.3.0
-	github.com/pj-hoakari/tolo-graph-authoring v0.0.0-20261010135424-d3fd1332e823
+	github.com/pj-hoakari/tolo-graph-authoring v0.2.0-rc.0.20261016022610-0fb78cdf9234
 	github.com/pj-hoakari/tolo-kernel-proto v0.4.0
-	github.com/pj-hoakari/tolo-observation v0.0.0-20261012031059-e46e86804f56
-	github.com/pj-hoakari/tolo-tenant-management v0.1.1-0.20261012023405-cfab0ec29147
+	github.com/pj-hoakari/tolo-observation v0.1.0-rc.0.20261016024438-b1ee8a0b4cc2
+	github.com/pj-hoakari/tolo-tenant-management v0.2.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
@@ -30,6 +30,7 @@ require (
 )
 
 require (
+	connectrpc.com/connect v1.21.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

@@ -17,8 +17,8 @@ const (
 	forwardgenImportPath = protogen.GoImportPath("github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forwardgen")
 	forwardImportPath    = protogen.GoImportPath("github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward")
 	connectImportPath    = protogen.GoImportPath("connectrpc.com/connect")
+	connectV2ImportPath  = protogen.GoImportPath("connectrpc.com/connect/v2")
 	contextImportPath    = protogen.GoImportPath("context")
-	httpImportPath       = protogen.GoImportPath("net/http")
 )
 
 const (
@@ -35,6 +35,24 @@ var (
 type forwarder struct {
 	file    *protogen.File
 	service *protogen.Service
+}
+
+func Options() protogen.Options {
+	return protogen.Options{
+		ParamFunc:                    nil,
+		ImportRewriteFunc:            rewriteConnectImport,
+		FeatureSetDefaults:           nil,
+		InternalStripForEditionsDiff: nil,
+		DefaultAPILevel:              0,
+	}
+}
+
+func rewriteConnectImport(importPath protogen.GoImportPath) protogen.GoImportPath {
+	if importPath == connectImportPath {
+		return connectV2ImportPath
+	}
+
+	return importPath
 }
 
 func Generate(plugin *protogen.Plugin, services map[string]struct{}) error {
@@ -131,8 +149,8 @@ func generateForwarders(plugin *protogen.Plugin, file *protogen.File, forwarders
 		for _, method := range each.service.Methods {
 			g.P("func (f *", name, ") ", method.GoName, "(",
 				"ctx ", g.QualifiedGoIdent(contextImportPath.Ident("Context")), ", ",
-				"req *", g.QualifiedGoIdent(connectImportPath.Ident("Request")), "[", g.QualifiedGoIdent(method.Input.GoIdent), "],",
-				") (*", g.QualifiedGoIdent(connectImportPath.Ident("Response")), "[", g.QualifiedGoIdent(method.Output.GoIdent), "], error) {")
+				"req *", g.QualifiedGoIdent(method.Input.GoIdent), ",",
+				") (*", g.QualifiedGoIdent(method.Output.GoIdent), ", error) {")
 			g.P("return ", g.QualifiedGoIdent(forwardImportPath.Ident("Unary")), "(ctx, req, f.client.", method.GoName, ")")
 			g.P("}")
 			g.P()
@@ -153,15 +171,13 @@ func generateMounts(plugin *protogen.Plugin, forwarders []forwarder) {
 
 		g.P("{")
 		g.P("Service: ", g.QualifiedGoIdent(connect.Ident(service.GoName+"Name")), ",")
-		g.P("New: func(",
-			"httpClient ", g.QualifiedGoIdent(connectImportPath.Ident("HTTPClient")), ", ",
-			"baseURL string, ",
-			"clientOptions []", g.QualifiedGoIdent(connectImportPath.Ident("ClientOption")), ", ",
-			"handlerOptions []", g.QualifiedGoIdent(connectImportPath.Ident("HandlerOption")), ",",
-			") (string, ", g.QualifiedGoIdent(httpImportPath.Ident("Handler")), ") {")
-		g.P("return ", g.QualifiedGoIdent(connect.Ident("New"+service.GoName+"Handler")), "(")
-		g.P("&", forwarderNameOf(service), "{client: ", g.QualifiedGoIdent(connect.Ident("New"+service.GoName+"Client")), "(httpClient, baseURL, clientOptions...)},")
-		g.P("handlerOptions...,")
+		g.P("Register: func(",
+			"server *", g.QualifiedGoIdent(connectImportPath.Ident("Server")), ", ",
+			"client *", g.QualifiedGoIdent(connectImportPath.Ident("Client")), ",",
+			") {")
+		g.P(g.QualifiedGoIdent(connect.Ident("Register"+service.GoName+"Handler")), "(")
+		g.P("server,")
+		g.P("&", forwarderNameOf(service), "{client: ", g.QualifiedGoIdent(connect.Ident("New"+service.GoName+"Client")), "(client)},")
 		g.P(")")
 		g.P("},")
 		g.P("},")

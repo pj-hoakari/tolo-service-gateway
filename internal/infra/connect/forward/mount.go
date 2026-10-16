@@ -8,7 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
 )
@@ -16,19 +17,18 @@ import (
 const maxRequestBytes = 1 << 20
 
 var (
-	ErrMissingMount       = errors.New("forward: missing mount")
-	ErrUnboundMount       = errors.New("forward: unbound mount")
-	ErrDuplicateMount     = errors.New("forward: duplicate mount")
-	ErrDuplicateMountPath = errors.New("forward: duplicate mount path")
+	ErrMissingMount   = errors.New("forward: missing mount")
+	ErrUnboundMount   = errors.New("forward: unbound mount")
+	ErrDuplicateMount = errors.New("forward: duplicate mount")
 )
 
 func Handlers(
 	bindings []registry.Binding,
 	destinations registry.Destinations,
 	mounts []Mount,
-	httpClient connectrpc.HTTPClient,
-	clientOptions []connectrpc.ClientOption,
-	handlerOptions []connectrpc.HandlerOption,
+	httpClient connecthttp.HTTPClient,
+	clientInterceptors []connectrpc.ClientInterceptor,
+	serverInterceptors []connectrpc.ServerInterceptor,
 ) (map[string]http.Handler, error) {
 	bound := make(map[string]string, len(bindings))
 
@@ -45,7 +45,6 @@ func Handlers(
 		return nil, err
 	}
 
-	options := append([]connectrpc.HandlerOption{connectrpc.WithReadMaxBytes(maxRequestBytes)}, handlerOptions...)
 	handlers := make(map[string]http.Handler, len(mounted))
 
 	for _, service := range slices.Sorted(maps.Keys(mounted)) {
@@ -54,13 +53,15 @@ func Handlers(
 			return nil, err
 		}
 
-		path, handler := mounted[service].New(httpClient, baseURL, clientOptions, options)
+		client := connectrpc.NewClient(connecthttp.NewTransport(httpClient, baseURL), clientInterceptors...)
+		server := connectrpc.NewServer(serverInterceptors...)
 
-		if _, taken := handlers[path]; taken {
-			return nil, fmt.Errorf("%w: %s is mounted on %q, which is already taken", ErrDuplicateMountPath, service, path)
-		}
+		mounted[service].Register(server, client)
 
-		handlers[path] = handler
+		mux := http.NewServeMux()
+		connecthttp.Mount(mux, server, connecthttp.WithReadMaxBytes(maxRequestBytes))
+
+		handlers["/"+service+"/"] = mux
 	}
 
 	return handlers, nil

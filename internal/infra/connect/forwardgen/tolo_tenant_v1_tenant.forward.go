@@ -3,7 +3,6 @@
 package forwardgen
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	forward "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	v1 "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1"
@@ -14,34 +13,34 @@ type toloTenantV1TenantServiceForwarder struct {
 	client tenantv1connect.TenantServiceClient
 }
 
-func (f *toloTenantV1TenantServiceForwarder) StartTenantRegistration(ctx context.Context, req *connect.Request[v1.StartTenantRegistrationRequest]) (*connect.Response[v1.StartTenantRegistrationResponse], error) {
+func (f *toloTenantV1TenantServiceForwarder) StartTenantRegistration(ctx context.Context, req *v1.StartTenantRegistrationRequest) (*v1.StartTenantRegistrationResponse, error) {
 	return forward.Unary(ctx, req, f.client.StartTenantRegistration)
 }
 
-func (f *toloTenantV1TenantServiceForwarder) ClaimTenantOwnership(ctx context.Context, req *connect.Request[v1.ClaimTenantOwnershipRequest]) (*connect.Response[v1.ClaimTenantOwnershipResponse], error) {
+func (f *toloTenantV1TenantServiceForwarder) ClaimTenantOwnership(ctx context.Context, req *v1.ClaimTenantOwnershipRequest) (*v1.ClaimTenantOwnershipResponse, error) {
 	return forward.Unary(ctx, req, f.client.ClaimTenantOwnership)
 }
 
-func (f *toloTenantV1TenantServiceForwarder) ChangeTenantContract(ctx context.Context, req *connect.Request[v1.ChangeTenantContractRequest]) (*connect.Response[v1.ChangeTenantContractResponse], error) {
+func (f *toloTenantV1TenantServiceForwarder) ChangeTenantContract(ctx context.Context, req *v1.ChangeTenantContractRequest) (*v1.ChangeTenantContractResponse, error) {
 	return forward.Unary(ctx, req, f.client.ChangeTenantContract)
 }
 
-func (f *toloTenantV1TenantServiceForwarder) ArchiveTenant(ctx context.Context, req *connect.Request[v1.ArchiveTenantRequest]) (*connect.Response[v1.ArchiveTenantResponse], error) {
+func (f *toloTenantV1TenantServiceForwarder) ArchiveTenant(ctx context.Context, req *v1.ArchiveTenantRequest) (*v1.ArchiveTenantResponse, error) {
 	return forward.Unary(ctx, req, f.client.ArchiveTenant)
 }
 
-func (f *toloTenantV1TenantServiceForwarder) CreateEvent(ctx context.Context, req *connect.Request[v1.CreateEventRequest]) (*connect.Response[v1.CreateEventResponse], error) {
+func (f *toloTenantV1TenantServiceForwarder) CreateEvent(ctx context.Context, req *v1.CreateEventRequest) (*v1.CreateEventResponse, error) {
 	return forward.Unary(ctx, req, f.client.CreateEvent)
 }
 
-func (f *toloTenantV1TenantServiceForwarder) TransitionEventStatus(ctx context.Context, req *connect.Request[v1.TransitionEventStatusRequest]) (*connect.Response[v1.TransitionEventStatusResponse], error) {
+func (f *toloTenantV1TenantServiceForwarder) TransitionEventStatus(ctx context.Context, req *v1.TransitionEventStatusRequest) (*v1.TransitionEventStatusResponse, error) {
 	return forward.Unary(ctx, req, f.client.TransitionEventStatus)
 }
 
-func (f *toloTenantV1TenantServiceForwarder) GetEvent(ctx context.Context, req *connect.Request[v1.GetEventRequest]) (*connect.Response[v1.GetEventResponse], error) {
+func (f *toloTenantV1TenantServiceForwarder) GetEvent(ctx context.Context, req *v1.GetEventRequest) (*v1.GetEventResponse, error) {
 	return forward.Unary(ctx, req, f.client.GetEvent)
 }
 
-func (f *toloTenantV1TenantServiceForwarder) ListEvents(ctx context.Context, req *connect.Request[v1.ListEventsRequest]) (*connect.Response[v1.ListEventsResponse], error) {
+func (f *toloTenantV1TenantServiceForwarder) ListEvents(ctx context.Context, req *v1.ListEventsRequest) (*v1.ListEventsResponse, error) {
 	return forward.Unary(ctx, req, f.client.ListEvents)
 }
