@@ -3,7 +3,6 @@
 package forwardgen
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	v1 "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1"
 	greetv1connect "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
@@ -14,10 +13,10 @@ type greetV1GreetServiceForwarder struct {
 	client greetv1connect.GreetServiceClient
 }
 
-func (f *greetV1GreetServiceForwarder) Greet(ctx context.Context, req *connect.Request[v1.GreetRequest]) (*connect.Response[v1.GreetResponse], error) {
+func (f *greetV1GreetServiceForwarder) Greet(ctx context.Context, req *v1.GreetRequest) (*v1.GreetResponse, error) {
 	return forward.Unary(ctx, req, f.client.Greet)
 }
 
-func (f *greetV1GreetServiceForwarder) Ping(ctx context.Context, req *connect.Request[v1.PingRequest]) (*connect.Response[v1.PingResponse], error) {
+func (f *greetV1GreetServiceForwarder) Ping(ctx context.Context, req *v1.PingRequest) (*v1.PingResponse, error) {
 	return forward.Unary(ctx, req, f.client.Ping)
 }

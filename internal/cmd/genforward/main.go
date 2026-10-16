@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 
-	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -44,7 +43,7 @@ func run(out string) error {
 		return err
 	}
 
-	var options protogen.Options
+	options := Options()
 
 	plugin, err := options.New(request)
 	if err != nil {

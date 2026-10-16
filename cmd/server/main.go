@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 	"connectrpc.com/otelconnect"
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
 	"go.opentelemetry.io/otel"
@@ -274,7 +274,7 @@ func buildRPCHandlers(destinations registry.Destinations) (map[string]http.Handl
 		return nil, errUnexpectedTransport
 	}
 
-	tracing, err := otelconnect.NewInterceptor(
+	tracing, err := otelconnect.NewClientInterceptor(
 		otelconnect.WithTracerProvider(otel.GetTracerProvider()),
 		otelconnect.WithPropagator(otel.GetTextMapPropagator()),
 	)
@@ -287,8 +287,8 @@ func buildRPCHandlers(destinations registry.Destinations) (map[string]http.Handl
 		destinations,
 		forwardgen.Mounts(),
 		forward.NewHTTPClient(transport.Clone()),
-		[]connectrpc.ClientOption{connectrpc.WithInterceptors(tracing, forward.AuthorizationInterceptor())},
-		[]connectrpc.HandlerOption{connectrpc.WithInterceptors(infraconnect.AuditInterceptor())},
+		[]connectrpc.ClientInterceptor{tracing, forward.AuthorizationInterceptor()},
+		[]connectrpc.ServerInterceptor{infraconnect.AuditInterceptor()},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build the RPC handlers: %w", err)

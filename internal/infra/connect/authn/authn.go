@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/registry"
 )

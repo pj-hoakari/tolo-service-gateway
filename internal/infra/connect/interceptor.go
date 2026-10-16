@@ -3,37 +3,25 @@ package connect
 import (
 	"context"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 
 	"github.com/pj-hoakari/tolo-service-gateway/internal/audit"
 )
 
 const resultOK = "ok"
 
-func AuditInterceptor() connectrpc.Interceptor {
-	return auditInterceptor{}
-}
+func AuditInterceptor() connectrpc.ServerInterceptor {
+	return func(next connectrpc.ServerFunc) connectrpc.ServerFunc {
+		return func(ctx context.Context, spec connectrpc.Spec, stream connectrpc.ServerStream) error {
+			err := next(ctx, spec, stream)
 
-type auditInterceptor struct{}
+			if record := audit.FromContext(ctx); record != nil {
+				record.Result = resultOf(err)
+			}
 
-func (auditInterceptor) WrapUnary(next connectrpc.UnaryFunc) connectrpc.UnaryFunc {
-	return func(ctx context.Context, req connectrpc.AnyRequest) (connectrpc.AnyResponse, error) {
-		res, err := next(ctx, req)
-
-		if record := audit.FromContext(ctx); record != nil {
-			record.Result = resultOf(err)
+			return err
 		}
-
-		return res, err
 	}
-}
-
-func (auditInterceptor) WrapStreamingClient(next connectrpc.StreamingClientFunc) connectrpc.StreamingClientFunc {
-	return next
-}
-
-func (auditInterceptor) WrapStreamingHandler(next connectrpc.StreamingHandlerFunc) connectrpc.StreamingHandlerFunc {
-	return next
 }
 
 func resultOf(err error) string {

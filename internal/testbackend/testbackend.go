@@ -2,12 +2,12 @@ package testbackend
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 
 	"github.com/pj-hoakari/internal-jwt-handling/interceptor"
 
@@ -15,7 +15,7 @@ import (
 	"github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
 )
 
-var errGreetingNameRequired = errors.New("name is required")
+const messageGreetingNameRequired = "name is required"
 
 func NewHandler(tokenVerifier interceptor.TokenVerifier) (http.Handler, error) {
 	auth, err := interceptor.New(
@@ -27,13 +27,11 @@ func NewHandler(tokenVerifier interceptor.TokenVerifier) (http.Handler, error) {
 		return nil, fmt.Errorf("create GreetService authentication interceptor: %w", err)
 	}
 
-	mux := http.NewServeMux()
+	server := connectrpc.NewServer(auth)
+	greetv1connect.RegisterGreetServiceHandler(server, greetService{UnimplementedGreetServiceHandler: greetv1connect.UnimplementedGreetServiceHandler{}})
 
-	path, handler := greetv1connect.NewGreetServiceHandler(
-		greetService{UnimplementedGreetServiceHandler: greetv1connect.UnimplementedGreetServiceHandler{}},
-		connectrpc.WithInterceptors(auth),
-	)
-	mux.Handle(path, handler)
+	mux := http.NewServeMux()
+	connecthttp.Mount(mux, server)
 
 	return mux, nil
 }
@@ -46,19 +44,19 @@ type greetService struct {
 	greetv1connect.UnimplementedGreetServiceHandler
 }
 
-func (greetService) Greet(_ context.Context, req *connectrpc.Request[greetv1.GreetRequest]) (*connectrpc.Response[greetv1.GreetResponse], error) {
-	name := req.Msg.GetName()
+func (greetService) Greet(_ context.Context, req *greetv1.GreetRequest) (*greetv1.GreetResponse, error) {
+	name := req.GetName()
 	if name == "" {
-		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument, errGreetingNameRequired)
+		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument, messageGreetingNameRequired)
 	}
 
-	return connectrpc.NewResponse(&greetv1.GreetResponse{
+	return &greetv1.GreetResponse{
 		Greeting: fmt.Sprintf("Hello, %s!", name),
-	}), nil
+	}, nil
 }
 
-func (greetService) Ping(_ context.Context, _ *connectrpc.Request[greetv1.PingRequest]) (*connectrpc.Response[greetv1.PingResponse], error) {
-	return connectrpc.NewResponse(&greetv1.PingResponse{
+func (greetService) Ping(_ context.Context, _ *greetv1.PingRequest) (*greetv1.PingResponse, error) {
+	return &greetv1.PingResponse{
 		Message: "pong",
-	}), nil
+	}, nil
 }

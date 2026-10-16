@@ -3,87 +3,86 @@
 package forwardgen
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	graphv1connect "github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
 	observationv1connect "github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1/observationv1connect"
 	greetv1connect "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
 	forward "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	relationv1connect "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1/relationv1connect"
 	tenantv1connect "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1/tenantv1connect"
-	http "net/http"
 )
 
 func Mounts() []forward.Mount {
 	return []forward.Mount{
 		{
 			Service: greetv1connect.GreetServiceName,
-			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
-				return greetv1connect.NewGreetServiceHandler(
-					&greetV1GreetServiceForwarder{client: greetv1connect.NewGreetServiceClient(httpClient, baseURL, clientOptions...)},
-					handlerOptions...,
+			Register: func(server *connect.Server, client *connect.Client) {
+				greetv1connect.RegisterGreetServiceHandler(
+					server,
+					&greetV1GreetServiceForwarder{client: greetv1connect.NewGreetServiceClient(client)},
 				)
 			},
 		},
 		{
 			Service: graphv1connect.GraphAuthoringServiceName,
-			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
-				return graphv1connect.NewGraphAuthoringServiceHandler(
-					&toloGraphV1GraphAuthoringServiceForwarder{client: graphv1connect.NewGraphAuthoringServiceClient(httpClient, baseURL, clientOptions...)},
-					handlerOptions...,
+			Register: func(server *connect.Server, client *connect.Client) {
+				graphv1connect.RegisterGraphAuthoringServiceHandler(
+					server,
+					&toloGraphV1GraphAuthoringServiceForwarder{client: graphv1connect.NewGraphAuthoringServiceClient(client)},
 				)
 			},
 		},
 		{
 			Service: graphv1connect.GraphSupplyServiceName,
-			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
-				return graphv1connect.NewGraphSupplyServiceHandler(
-					&toloGraphV1GraphSupplyServiceForwarder{client: graphv1connect.NewGraphSupplyServiceClient(httpClient, baseURL, clientOptions...)},
-					handlerOptions...,
+			Register: func(server *connect.Server, client *connect.Client) {
+				graphv1connect.RegisterGraphSupplyServiceHandler(
+					server,
+					&toloGraphV1GraphSupplyServiceForwarder{client: graphv1connect.NewGraphSupplyServiceClient(client)},
 				)
 			},
 		},
 		{
 			Service: observationv1connect.EdgeDeviceServiceName,
-			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
-				return observationv1connect.NewEdgeDeviceServiceHandler(
-					&toloObservationV1EdgeDeviceServiceForwarder{client: observationv1connect.NewEdgeDeviceServiceClient(httpClient, baseURL, clientOptions...)},
-					handlerOptions...,
+			Register: func(server *connect.Server, client *connect.Client) {
+				observationv1connect.RegisterEdgeDeviceServiceHandler(
+					server,
+					&toloObservationV1EdgeDeviceServiceForwarder{client: observationv1connect.NewEdgeDeviceServiceClient(client)},
 				)
 			},
 		},
 		{
 			Service: observationv1connect.MeasurementIngestServiceName,
-			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
-				return observationv1connect.NewMeasurementIngestServiceHandler(
-					&toloObservationV1MeasurementIngestServiceForwarder{client: observationv1connect.NewMeasurementIngestServiceClient(httpClient, baseURL, clientOptions...)},
-					handlerOptions...,
+			Register: func(server *connect.Server, client *connect.Client) {
+				observationv1connect.RegisterMeasurementIngestServiceHandler(
+					server,
+					&toloObservationV1MeasurementIngestServiceForwarder{client: observationv1connect.NewMeasurementIngestServiceClient(client)},
 				)
 			},
 		},
 		{
 			Service: observationv1connect.ObservationSettingsServiceName,
-			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
-				return observationv1connect.NewObservationSettingsServiceHandler(
-					&toloObservationV1ObservationSettingsServiceForwarder{client: observationv1connect.NewObservationSettingsServiceClient(httpClient, baseURL, clientOptions...)},
-					handlerOptions...,
+			Register: func(server *connect.Server, client *connect.Client) {
+				observationv1connect.RegisterObservationSettingsServiceHandler(
+					server,
+					&toloObservationV1ObservationSettingsServiceForwarder{client: observationv1connect.NewObservationSettingsServiceClient(client)},
 				)
 			},
 		},
 		{
 			Service: relationv1connect.RelationAdminServiceName,
-			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
-				return relationv1connect.NewRelationAdminServiceHandler(
-					&toloRelationV1RelationAdminServiceForwarder{client: relationv1connect.NewRelationAdminServiceClient(httpClient, baseURL, clientOptions...)},
-					handlerOptions...,
+			Register: func(server *connect.Server, client *connect.Client) {
+				relationv1connect.RegisterRelationAdminServiceHandler(
+					server,
+					&toloRelationV1RelationAdminServiceForwarder{client: relationv1connect.NewRelationAdminServiceClient(client)},
 				)
 			},
 		},
 		{
 			Service: tenantv1connect.TenantServiceName,
-			New: func(httpClient connect.HTTPClient, baseURL string, clientOptions []connect.ClientOption, handlerOptions []connect.HandlerOption) (string, http.Handler) {
-				return tenantv1connect.NewTenantServiceHandler(
-					&toloTenantV1TenantServiceForwarder{client: tenantv1connect.NewTenantServiceClient(httpClient, baseURL, clientOptions...)},
-					handlerOptions...,
+			Register: func(server *connect.Server, client *connect.Client) {
+				tenantv1connect.RegisterTenantServiceHandler(
+					server,
+					&toloTenantV1TenantServiceForwarder{client: tenantv1connect.NewTenantServiceClient(client)},
 				)
 			},
 		},

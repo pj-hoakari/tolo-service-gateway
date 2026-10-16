@@ -10,7 +10,8 @@ import (
 	"testing"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/internal-jwt-handling/issuer"
@@ -120,7 +121,7 @@ func newBackendClient(t *testing.T, jwksURL string) greetv1connect.GreetServiceC
 	backend := httptest.NewServer(handler)
 	t.Cleanup(backend.Close)
 
-	return greetv1connect.NewGreetServiceClient(backend.Client(), backend.URL)
+	return greetv1connect.NewGreetServiceClient(connectrpc.NewClient(connecthttp.NewTransport(backend.Client(), backend.URL)))
 }
 
 func issueGatewayToken(t *testing.T, gatewayIssuer *issuer.Issuer, audience string) string {
@@ -212,12 +213,12 @@ func TestBackendVerifiesGatewayTokensThroughItsJWKS(t *testing.T) {
 			gatewayIssuer, jwksURL := newGateway(t)
 			client := newBackendClient(t, jwksURL)
 
-			req := connectrpc.NewRequest(&greetv1.GreetRequest{Name: "Ada"})
+			ctx, info := connectrpc.NewClientContext(t.Context())
 			if tt.token != nil {
-				req.Header().Set("Authorization", "Bearer "+tt.token(t, gatewayIssuer))
+				info.RequestHeader().Set("Authorization", "Bearer "+tt.token(t, gatewayIssuer))
 			}
 
-			res, err := client.Greet(t.Context(), req)
+			res, err := client.Greet(ctx, &greetv1.GreetRequest{Name: "Ada"})
 
 			if tt.wantCode != 0 {
 				if got := connectrpc.CodeOf(err); got != tt.wantCode {
@@ -231,7 +232,7 @@ func TestBackendVerifiesGatewayTokensThroughItsJWKS(t *testing.T) {
 				t.Fatalf("Greet() error = %v, want nil", err)
 			}
 
-			if got := res.Msg.GetGreeting(); got != tt.wantGreeting {
+			if got := res.GetGreeting(); got != tt.wantGreeting {
 				t.Errorf("Greeting = %q, want %q", got, tt.wantGreeting)
 			}
 		})
@@ -276,10 +277,10 @@ func TestBackendReportsUnavailableWhenTheGatewayJWKSCannotBeFetched(t *testing.T
 			gatewayIssuer := newGatewayIssuer(t)
 			client := newBackendClient(t, tt.jwksURL(t, gatewayIssuer))
 
-			req := connectrpc.NewRequest(&greetv1.GreetRequest{Name: "Ada"})
-			req.Header().Set("Authorization", "Bearer "+issueGatewayToken(t, gatewayIssuer, backendAudience))
+			ctx, info := connectrpc.NewClientContext(t.Context())
+			info.RequestHeader().Set("Authorization", "Bearer "+issueGatewayToken(t, gatewayIssuer, backendAudience))
 
-			_, err := client.Greet(t.Context(), req)
+			_, err := client.Greet(ctx, &greetv1.GreetRequest{Name: "Ada"})
 			if got, want := connectrpc.CodeOf(err), connectrpc.CodeUnavailable; got != want {
 				t.Fatalf("Greet() error code = %v, want %v (error = %v)", got, want, err)
 			}

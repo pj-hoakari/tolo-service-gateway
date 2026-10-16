@@ -3,7 +3,6 @@
 package forwardgen
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	forward "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	v1 "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1"
@@ -14,22 +13,22 @@ type toloRelationV1RelationAdminServiceForwarder struct {
 	client relationv1connect.RelationAdminServiceClient
 }
 
-func (f *toloRelationV1RelationAdminServiceForwarder) AddTenantMember(ctx context.Context, req *connect.Request[v1.AddTenantMemberRequest]) (*connect.Response[v1.AddTenantMemberResponse], error) {
+func (f *toloRelationV1RelationAdminServiceForwarder) AddTenantMember(ctx context.Context, req *v1.AddTenantMemberRequest) (*v1.AddTenantMemberResponse, error) {
 	return forward.Unary(ctx, req, f.client.AddTenantMember)
 }
 
-func (f *toloRelationV1RelationAdminServiceForwarder) ChangeTenantRole(ctx context.Context, req *connect.Request[v1.ChangeTenantRoleRequest]) (*connect.Response[v1.ChangeTenantRoleResponse], error) {
+func (f *toloRelationV1RelationAdminServiceForwarder) ChangeTenantRole(ctx context.Context, req *v1.ChangeTenantRoleRequest) (*v1.ChangeTenantRoleResponse, error) {
 	return forward.Unary(ctx, req, f.client.ChangeTenantRole)
 }
 
-func (f *toloRelationV1RelationAdminServiceForwarder) GrantEventRole(ctx context.Context, req *connect.Request[v1.GrantEventRoleRequest]) (*connect.Response[v1.GrantEventRoleResponse], error) {
+func (f *toloRelationV1RelationAdminServiceForwarder) GrantEventRole(ctx context.Context, req *v1.GrantEventRoleRequest) (*v1.GrantEventRoleResponse, error) {
 	return forward.Unary(ctx, req, f.client.GrantEventRole)
 }
 
-func (f *toloRelationV1RelationAdminServiceForwarder) RevokeRole(ctx context.Context, req *connect.Request[v1.RevokeRoleRequest]) (*connect.Response[v1.RevokeRoleResponse], error) {
+func (f *toloRelationV1RelationAdminServiceForwarder) RevokeRole(ctx context.Context, req *v1.RevokeRoleRequest) (*v1.RevokeRoleResponse, error) {
 	return forward.Unary(ctx, req, f.client.RevokeRole)
 }
 
-func (f *toloRelationV1RelationAdminServiceForwarder) ListMemberships(ctx context.Context, req *connect.Request[v1.ListMembershipsRequest]) (*connect.Response[v1.ListMembershipsResponse], error) {
+func (f *toloRelationV1RelationAdminServiceForwarder) ListMemberships(ctx context.Context, req *v1.ListMembershipsRequest) (*v1.ListMembershipsResponse, error) {
 	return forward.Unary(ctx, req, f.client.ListMemberships)
 }
