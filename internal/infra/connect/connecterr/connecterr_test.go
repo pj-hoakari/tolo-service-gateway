@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -55,16 +56,44 @@ func TestInternalErrorHidesDetail(t *testing.T) {
 	}
 }
 
-func TestCanceledRequestIsNotLogged(t *testing.T) {
-	logs := captureLog(t)
-
-	err := connecterr.InternalError(context.Background(), context.Canceled)
-	if got, want := connectrpc.CodeOf(err), connectrpc.CodeCanceled; got != want {
-		t.Fatalf("InternalError() code = %v, want %v", got, want)
+func TestClientGoneAwayIsAnsweredWithFixedMessageAndNotLogged(t *testing.T) {
+	tests := []struct {
+		name        string
+		err         error
+		wantCode    connectrpc.Code
+		wantMessage string
+	}{
+		{
+			name:        "canceled",
+			err:         fmt.Errorf("find edge device: %w", context.Canceled),
+			wantCode:    connectrpc.CodeCanceled,
+			wantMessage: "canceled",
+		},
+		{
+			name:        "deadline exceeded",
+			err:         fmt.Errorf("call GetQrLocations: %w", context.DeadlineExceeded),
+			wantCode:    connectrpc.CodeDeadlineExceeded,
+			wantMessage: "deadline exceeded",
+		},
 	}
 
-	if logs.Len() != 0 {
-		t.Errorf("log = %q, want nothing logged", logs.String())
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			logs := captureLog(t)
+
+			err := connecterr.InternalError(context.Background(), test.err)
+			if got := connectrpc.CodeOf(err); got != test.wantCode {
+				t.Fatalf("InternalError() code = %v, want %v", got, test.wantCode)
+			}
+
+			if got := err.Message(); got != test.wantMessage {
+				t.Errorf("Message() = %q, want %q", got, test.wantMessage)
+			}
+
+			if logs.Len() != 0 {
+				t.Errorf("log = %q, want nothing logged", logs.String())
+			}
+		})
 	}
 }
 
