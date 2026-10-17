@@ -6,6 +6,7 @@ import (
 	connect "connectrpc.com/connect/v2"
 	graphv1connect "github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
 	observationv1connect "github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1/observationv1connect"
+	operationv1connect "github.com/pj-hoakari/tolo-operation/gen/tolo/operation/v1/operationv1connect"
 	greetv1connect "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
 	forward "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	relationv1connect "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1/relationv1connect"
@@ -65,6 +66,42 @@ func Mounts() []forward.Mount {
 				observationv1connect.RegisterObservationSettingsServiceHandler(
 					server,
 					&toloObservationV1ObservationSettingsServiceForwarder{client: observationv1connect.NewObservationSettingsServiceClient(client)},
+				)
+			},
+		},
+		{
+			Service: operationv1connect.DeliveryCoordinationServiceName,
+			Register: func(server *connect.Server, client *connect.Client) {
+				operationv1connect.RegisterDeliveryCoordinationServiceHandler(
+					server,
+					&toloOperationV1DeliveryCoordinationServiceForwarder{client: operationv1connect.NewDeliveryCoordinationServiceClient(client)},
+				)
+			},
+		},
+		{
+			Service: operationv1connect.DigestServiceName,
+			Register: func(server *connect.Server, client *connect.Client) {
+				operationv1connect.RegisterDigestServiceHandler(
+					server,
+					&toloOperationV1DigestServiceForwarder{client: operationv1connect.NewDigestServiceClient(client)},
+				)
+			},
+		},
+		{
+			Service: operationv1connect.OperationControlServiceName,
+			Register: func(server *connect.Server, client *connect.Client) {
+				operationv1connect.RegisterOperationControlServiceHandler(
+					server,
+					&toloOperationV1OperationControlServiceForwarder{client: operationv1connect.NewOperationControlServiceClient(client)},
+				)
+			},
+		},
+		{
+			Service: operationv1connect.StaffCommunicationServiceName,
+			Register: func(server *connect.Server, client *connect.Client) {
+				operationv1connect.RegisterStaffCommunicationServiceHandler(
+					server,
+					&toloOperationV1StaffCommunicationServiceForwarder{client: operationv1connect.NewStaffCommunicationServiceClient(client)},
 				)
 			},
 		},

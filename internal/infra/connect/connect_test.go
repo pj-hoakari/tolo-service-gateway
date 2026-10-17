@@ -51,6 +51,7 @@ const (
 	scopelessToken = "external-token-b"
 	unknownToken   = "external-token-c"
 	internalToken  = "internal-token-a"
+	staffToken     = "external-token-staff"
 )
 
 const (
@@ -129,6 +130,17 @@ func newAuthenticator() *authn.Authenticator {
 	return authn.NewAuthenticator(fakeVerifier{tokens: map[string]authn.ExternalToken{
 		acceptedToken:  externalToken(greetScope),
 		scopelessToken: externalToken(""),
+		staffToken: {
+			Subject:           externalSubject,
+			ClientID:          externalClientID,
+			TokenUse:          internaljwt.TokenUseEventAccess,
+			Scope:             "events.read",
+			JTI:               externalJTI,
+			TenantID:          externalTenantID,
+			EventID:           contextEventID,
+			ExpiresAt:         time.Now().Add(15 * time.Minute),
+			SenderConstrained: false,
+		},
 	}}, nil)
 }
 

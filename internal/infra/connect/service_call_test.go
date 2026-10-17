@@ -21,6 +21,8 @@ import (
 	"github.com/pj-hoakari/internal-jwt-handling/verifier"
 	graphv1 "github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1"
 	"github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
+	operationv1 "github.com/pj-hoakari/tolo-operation/gen/tolo/operation/v1"
+	"github.com/pj-hoakari/tolo-operation/gen/tolo/operation/v1/operationv1connect"
 	tenantv1 "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1/tenantv1connect"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -41,6 +43,7 @@ import (
 const (
 	graphAuthoring   = "tolo-graph-authoring"
 	observation      = "tolo-observation"
+	operation        = "tolo-operation"
 	guest            = "tolo-guest"
 	tenantManagement = "tolo-tenant-management"
 	contextEventID   = "0f1e2d3c4b5a6978"
@@ -72,13 +75,43 @@ func (s upstreamGraphSupplyService) GetObservationPointMappings(
 	return &graphv1.GetMappingsResponse{}, nil
 }
 
+type upstreamStaffCommunicationService struct {
+	operationv1connect.UnimplementedStaffCommunicationServiceHandler
+	calls chan http.Header
+}
+
+func (s upstreamStaffCommunicationService) ListStaffMessages(
+	ctx context.Context,
+	_ *operationv1.ListStaffMessagesRequest,
+) (*operationv1.ListStaffMessagesResponse, error) {
+	s.calls <- requestHeaderOf(ctx)
+
+	return &operationv1.ListStaffMessagesResponse{}, nil
+}
+
+type upstreamDeliveryCoordinationService struct {
+	operationv1connect.UnimplementedDeliveryCoordinationServiceHandler
+	calls chan http.Header
+}
+
+func (s upstreamDeliveryCoordinationService) RequestProposalDelivery(
+	ctx context.Context,
+	_ *operationv1.RequestProposalDeliveryRequest,
+) (*operationv1.RequestProposalDeliveryResponse, error) {
+	s.calls <- requestHeaderOf(ctx)
+
+	return &operationv1.RequestProposalDeliveryResponse{}, nil
+}
+
 type serviceFixture struct {
-	tenants  tenantv1connect.TenantServiceClient
-	graphs   graphv1connect.GraphSupplyServiceClient
-	issuer   *issuer.Issuer
-	backend  *verifier.ContextVerifier
-	upstream chan http.Header
-	audit    *bytes.Buffer
+	tenants    tenantv1connect.TenantServiceClient
+	graphs     graphv1connect.GraphSupplyServiceClient
+	staff      operationv1connect.StaffCommunicationServiceClient
+	deliveries operationv1connect.DeliveryCoordinationServiceClient
+	issuer     *issuer.Issuer
+	backend    *verifier.ContextVerifier
+	upstream   chan http.Header
+	audit      *bytes.Buffer
 }
 
 func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
@@ -128,6 +161,14 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 		UnimplementedGraphSupplyServiceHandler: graphv1connect.UnimplementedGraphSupplyServiceHandler{},
 		calls:                                  calls,
 	})
+	operationv1connect.RegisterStaffCommunicationServiceHandler(server, upstreamStaffCommunicationService{
+		UnimplementedStaffCommunicationServiceHandler: operationv1connect.UnimplementedStaffCommunicationServiceHandler{},
+		calls: calls,
+	})
+	operationv1connect.RegisterDeliveryCoordinationServiceHandler(server, upstreamDeliveryCoordinationService{
+		UnimplementedDeliveryCoordinationServiceHandler: operationv1connect.UnimplementedDeliveryCoordinationServiceHandler{},
+		calls: calls,
+	})
 	connecthttp.Mount(mux, server)
 
 	upstream := httptest.NewServer(mux)
@@ -164,13 +205,17 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 	})))
 	t.Cleanup(gateway.Close)
 
+	client := connectrpc.NewClient(connecthttp.NewTransport(gateway.Client(), gateway.URL))
+
 	return serviceFixture{
-		tenants:  tenantv1connect.NewTenantServiceClient(connectrpc.NewClient(connecthttp.NewTransport(gateway.Client(), gateway.URL))),
-		graphs:   graphv1connect.NewGraphSupplyServiceClient(connectrpc.NewClient(connecthttp.NewTransport(gateway.Client(), gateway.URL))),
-		issuer:   gatewayIssuer,
-		backend:  contexts,
-		upstream: calls,
-		audit:    logs,
+		tenants:    tenantv1connect.NewTenantServiceClient(client),
+		graphs:     graphv1connect.NewGraphSupplyServiceClient(client),
+		staff:      operationv1connect.NewStaffCommunicationServiceClient(client),
+		deliveries: operationv1connect.NewDeliveryCoordinationServiceClient(client),
+		issuer:     gatewayIssuer,
+		backend:    contexts,
+		upstream:   calls,
+		audit:      logs,
 	}
 }
 
@@ -259,6 +304,32 @@ func getObservationPointMappings(t *testing.T, f serviceFixture, header map[stri
 	}
 
 	_, err := f.graphs.GetObservationPointMappings(ctx, &graphv1.GetMappingsRequest{EventId: contextEventID})
+
+	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
+}
+
+func listStaffMessages(t *testing.T, f serviceFixture, header map[string]string) error {
+	t.Helper()
+
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	for key, value := range header {
+		info.RequestHeader().Set(key, value)
+	}
+
+	_, err := f.staff.ListStaffMessages(ctx, &operationv1.ListStaffMessagesRequest{EventId: contextEventID})
+
+	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
+}
+
+func requestProposalDelivery(t *testing.T, f serviceFixture, header map[string]string) error {
+	t.Helper()
+
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	for key, value := range header {
+		info.RequestHeader().Set(key, value)
+	}
+
+	_, err := f.deliveries.RequestProposalDelivery(ctx, &operationv1.RequestProposalDeliveryRequest{EventId: contextEventID})
 
 	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
 }
@@ -630,6 +701,117 @@ func TestPublicListenerExecutesNoServiceCall(t *testing.T) {
 				"method":         tenantv1connect.TenantServiceGetEventProcedure,
 				"result":         test.wantCode.String(),
 				"failure_reason": test.wantReason,
+			})
+		})
+	}
+}
+
+func TestPublicListenerExchangesAStaffTokenForOperation(t *testing.T) {
+	t.Parallel()
+
+	f := newServiceGateway(t, config.InboundPublic)
+
+	if err := listStaffMessages(t, f, bearerHeader(staffToken)); err != nil {
+		t.Fatalf("ListStaffMessages() error = %v, want nil", err)
+	}
+
+	_, claims := f.forwarded(t, operation)
+
+	if claims.TokenUse != internaljwt.TokenUseEventAccess || claims.Subject != externalSubject || claims.EventPublicID != contextEventID {
+		t.Errorf("forwarded token_use=%q sub=%q event_id=%q, want %q %q %q",
+			claims.TokenUse, claims.Subject, claims.EventPublicID, internaljwt.TokenUseEventAccess, externalSubject, contextEventID)
+	}
+
+	assertAudit(t, singleAuditRecord(t, f.audit), map[string]any{
+		"method": operationv1connect.StaffCommunicationServiceListStaffMessagesProcedure,
+		"result": "ok",
+	})
+}
+
+func TestPublicListenerKeepsProposalDeliveryInternal(t *testing.T) {
+	t.Parallel()
+
+	f := newServiceGateway(t, config.InboundPublic)
+
+	err := requestProposalDelivery(t, f, bearerHeader(staffToken))
+
+	if got := gatewayError(t, err).Code(); got != connectrpc.CodePermissionDenied {
+		t.Errorf("code = %v, want %v", got, connectrpc.CodePermissionDenied)
+	}
+
+	f.assertNotForwarded(t)
+
+	assertAudit(t, singleAuditRecord(t, f.audit), map[string]any{
+		"method":         operationv1connect.DeliveryCoordinationServiceRequestProposalDeliveryProcedure,
+		"result":         connectrpc.CodePermissionDenied.String(),
+		"failure_reason": "internal_only",
+	})
+}
+
+func TestInternalListenerReissuesOperationCalls(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		call       func(t *testing.T, f serviceFixture, header map[string]string) error
+		header     func(t *testing.T, f serviceFixture) map[string]string
+		caller     string
+		method     string
+		wantOrigin string
+	}{
+		"a proposal delivery in an observation event context": {
+			call: requestProposalDelivery,
+			header: func(t *testing.T, f serviceFixture) map[string]string {
+				t.Helper()
+
+				return bearerHeader(f.eventAccessFor(t, observation).Token)
+			},
+			caller:     observation,
+			method:     operationv1connect.DeliveryCoordinationServiceRequestProposalDeliveryProcedure,
+			wantOrigin: "user",
+		},
+		"a proposal delivery in an observation machine-origin chain": {
+			call: requestProposalDelivery,
+			header: func(t *testing.T, f serviceFixture) map[string]string {
+				t.Helper()
+
+				return bearerHeader(f.machineOriginFor(t, observation).Token)
+			},
+			caller:     observation,
+			method:     operationv1connect.DeliveryCoordinationServiceRequestProposalDeliveryProcedure,
+			wantOrigin: "machine_chain",
+		},
+		"a staff message pull the guest service starts": {
+			call: listStaffMessages,
+			header: func(*testing.T, serviceFixture) map[string]string {
+				return map[string]string{"Tolo-Caller-Service": guest}
+			},
+			caller:     guest,
+			method:     operationv1connect.StaffCommunicationServiceListStaffMessagesProcedure,
+			wantOrigin: "new_machine",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newServiceGateway(t, config.InboundInternal)
+
+			if err := test.call(t, f, test.header(t, f)); err != nil {
+				t.Fatalf("call error = %v, want nil", err)
+			}
+
+			_, claims := f.forwarded(t, operation)
+
+			if claims.Subject != test.caller || claims.TokenUse != internaljwt.TokenUseService {
+				t.Errorf("forwarded sub=%q token_use=%q, want %q %q", claims.Subject, claims.TokenUse, test.caller, internaljwt.TokenUseService)
+			}
+
+			assertAudit(t, singleAuditRecord(t, f.audit), map[string]any{
+				"method":         test.method,
+				"result":         "ok",
+				"caller_service": test.caller,
+				"origin":         test.wantOrigin,
 			})
 		})
 	}

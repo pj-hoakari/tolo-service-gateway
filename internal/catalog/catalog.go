@@ -4,6 +4,7 @@ import (
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
 	"github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1/observationv1connect"
+	"github.com/pj-hoakari/tolo-operation/gen/tolo/operation/v1/operationv1connect"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1/relationv1connect"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1/tenantv1connect"
 
@@ -17,9 +18,11 @@ const (
 	tenantManagementDestination = "tolo-tenant-management"
 	graphAuthoringDestination   = "tolo-graph-authoring"
 	observationDestination      = "tolo-observation"
+	operationDestination        = "tolo-operation"
 
 	graphAuthoringCaller = graphAuthoringDestination
 	observationCaller    = observationDestination
+	guestCaller          = "tolo-guest"
 )
 
 func Bindings() []registry.Binding {
@@ -63,6 +66,26 @@ func Bindings() []registry.Binding {
 			Service:     observationv1connect.ObservationSettingsServiceName,
 			Destination: observationDestination,
 			Policies:    observationv1connect.ObservationSettingsServicePolicies,
+		},
+		{
+			Service:     operationv1connect.StaffCommunicationServiceName,
+			Destination: operationDestination,
+			Policies:    operationv1connect.StaffCommunicationServicePolicies,
+		},
+		{
+			Service:     operationv1connect.OperationControlServiceName,
+			Destination: operationDestination,
+			Policies:    operationv1connect.OperationControlServicePolicies,
+		},
+		{
+			Service:     operationv1connect.DeliveryCoordinationServiceName,
+			Destination: operationDestination,
+			Policies:    operationv1connect.DeliveryCoordinationServicePolicies,
+		},
+		{
+			Service:     operationv1connect.DigestServiceName,
+			Destination: operationDestination,
+			Policies:    operationv1connect.DigestServicePolicies,
 		},
 	}
 }
@@ -109,6 +132,27 @@ func Edges() []edgepolicy.Edge {
 			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
 			MachineChain:        true,
 			NewMachineOrigin:    false,
+		},
+		{
+			Caller:              observationCaller,
+			Procedure:           operationv1connect.DeliveryCoordinationServiceRequestProposalDeliveryProcedure,
+			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
+			MachineChain:        true,
+			NewMachineOrigin:    false,
+		},
+		{
+			Caller:              observationCaller,
+			Procedure:           operationv1connect.DeliveryCoordinationServiceRecordFeedbackValuesProcedure,
+			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
+			MachineChain:        true,
+			NewMachineOrigin:    false,
+		},
+		{
+			Caller:              guestCaller,
+			Procedure:           operationv1connect.StaffCommunicationServiceListStaffMessagesProcedure,
+			UserOriginTokenUses: nil,
+			MachineChain:        false,
+			NewMachineOrigin:    true,
 		},
 	}
 }
