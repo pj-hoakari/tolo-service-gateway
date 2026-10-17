@@ -22,6 +22,7 @@ const (
 
 	graphAuthoringCaller = graphAuthoringDestination
 	observationCaller    = observationDestination
+	guestCaller          = "tolo-guest"
 )
 
 func Bindings() []registry.Binding {
@@ -131,6 +132,27 @@ func Edges() []edgepolicy.Edge {
 			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
 			MachineChain:        true,
 			NewMachineOrigin:    false,
+		},
+		{
+			Caller:              observationCaller,
+			Procedure:           operationv1connect.DeliveryCoordinationServiceRequestProposalDeliveryProcedure,
+			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
+			MachineChain:        true,
+			NewMachineOrigin:    false,
+		},
+		{
+			Caller:              observationCaller,
+			Procedure:           operationv1connect.DeliveryCoordinationServiceRecordFeedbackValuesProcedure,
+			UserOriginTokenUses: []string{internaljwt.TokenUseEventAccess},
+			MachineChain:        true,
+			NewMachineOrigin:    false,
+		},
+		{
+			Caller:              guestCaller,
+			Procedure:           operationv1connect.StaffCommunicationServiceListStaffMessagesProcedure,
+			UserOriginTokenUses: nil,
+			MachineChain:        false,
+			NewMachineOrigin:    true,
 		},
 	}
 }

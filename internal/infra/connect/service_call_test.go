@@ -747,3 +747,72 @@ func TestPublicListenerKeepsProposalDeliveryInternal(t *testing.T) {
 		"failure_reason": "internal_only",
 	})
 }
+
+func TestInternalListenerReissuesOperationCalls(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		call       func(t *testing.T, f serviceFixture, header map[string]string) error
+		header     func(t *testing.T, f serviceFixture) map[string]string
+		caller     string
+		method     string
+		wantOrigin string
+	}{
+		"a proposal delivery in an observation event context": {
+			call: requestProposalDelivery,
+			header: func(t *testing.T, f serviceFixture) map[string]string {
+				t.Helper()
+
+				return bearerHeader(f.eventAccessFor(t, observation).Token)
+			},
+			caller:     observation,
+			method:     operationv1connect.DeliveryCoordinationServiceRequestProposalDeliveryProcedure,
+			wantOrigin: "user",
+		},
+		"a proposal delivery in an observation machine-origin chain": {
+			call: requestProposalDelivery,
+			header: func(t *testing.T, f serviceFixture) map[string]string {
+				t.Helper()
+
+				return bearerHeader(f.machineOriginFor(t, observation).Token)
+			},
+			caller:     observation,
+			method:     operationv1connect.DeliveryCoordinationServiceRequestProposalDeliveryProcedure,
+			wantOrigin: "machine_chain",
+		},
+		"a staff message pull the guest service starts": {
+			call: listStaffMessages,
+			header: func(*testing.T, serviceFixture) map[string]string {
+				return map[string]string{"Tolo-Caller-Service": guest}
+			},
+			caller:     guest,
+			method:     operationv1connect.StaffCommunicationServiceListStaffMessagesProcedure,
+			wantOrigin: "new_machine",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newServiceGateway(t, config.InboundInternal)
+
+			if err := test.call(t, f, test.header(t, f)); err != nil {
+				t.Fatalf("call error = %v, want nil", err)
+			}
+
+			_, claims := f.forwarded(t, operation)
+
+			if claims.Subject != test.caller || claims.TokenUse != internaljwt.TokenUseService {
+				t.Errorf("forwarded sub=%q token_use=%q, want %q %q", claims.Subject, claims.TokenUse, test.caller, internaljwt.TokenUseService)
+			}
+
+			assertAudit(t, singleAuditRecord(t, f.audit), map[string]any{
+				"method":         test.method,
+				"result":         "ok",
+				"caller_service": test.caller,
+				"origin":         test.wantOrigin,
+			})
+		})
+	}
+}
