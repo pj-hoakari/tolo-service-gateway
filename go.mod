@@ -15,7 +15,7 @@ require (
 	connectrpc.com/otelconnect v0.12.0
 	github.com/go-logr/logr v1.4.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/pj-hoakari/internal-jwt-handling v0.3.0
+	github.com/pj-hoakari/internal-jwt-handling v0.4.0
 	github.com/pj-hoakari/protoc-gen-authz-go v0.3.0
 	github.com/pj-hoakari/tolo-graph-authoring v0.2.0-rc.0.20261016022610-0fb78cdf9234
 	github.com/pj-hoakari/tolo-kernel-proto v0.4.0
