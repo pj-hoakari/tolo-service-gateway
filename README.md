@@ -221,7 +221,8 @@ compose を使わずに起動する場合、開発用の署名鍵は `openssl ec
     "tolo-testbackend": { "url": "http://testbackend:8080" },
     "tolo-tenant-management": { "url": "http://tenant-management:8080" },
     "tolo-graph-authoring": { "url": "http://graph-authoring:8080" },
-    "tolo-observation": { "url": "http://observation:8080" }
+    "tolo-observation": { "url": "http://observation:8080" },
+    "tolo-operation": { "url": "http://operation:8080" }
   }
 }
 ```
@@ -232,8 +233,8 @@ compose を使わずに起動する場合、開発用の署名鍵は `openssl ec
 RPC 登録表が参照する宛先が設定に無い場合も、設定にあるが登録表から参照されない宛先がある場合もエラーになる  
 compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destinations.json` へ読み込み専用でマウントしている
 
-登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService`（宛先 `tolo-tenant-management`）、Graph Authoring の `tolo.graph.v1.GraphAuthoringService` と `tolo.graph.v1.GraphSupplyService`（宛先 `tolo-graph-authoring`）、Observation の `tolo.observation.v1.MeasurementIngestService`・`tolo.observation.v1.EdgeDeviceService`・`tolo.observation.v1.ObservationSettingsService`（宛先 `tolo-observation`）が入っている  
-ただしこのリポジトリの compose には Tenant Management、Graph Authoring、Observation のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる  
+登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService`（宛先 `tolo-tenant-management`）、Graph Authoring の `tolo.graph.v1.GraphAuthoringService` と `tolo.graph.v1.GraphSupplyService`（宛先 `tolo-graph-authoring`）、Observation の `tolo.observation.v1.MeasurementIngestService`・`tolo.observation.v1.EdgeDeviceService`・`tolo.observation.v1.ObservationSettingsService`（宛先 `tolo-observation`）、Operation の `tolo.operation.v1.StaffCommunicationService`・`tolo.operation.v1.OperationControlService`・`tolo.operation.v1.DeliveryCoordinationService`・`tolo.operation.v1.DigestService`（宛先 `tolo-operation`）が入っている  
+ただしこのリポジトリの compose には Tenant Management、Graph Authoring、Observation、Operation のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる  
 実物の後段サービスや実物の IdP とつないだ確認は、[tolo](https://github.com/pj-hoakari/tolo) リポジトリの compose で行う
 
 #### 配備についての注意

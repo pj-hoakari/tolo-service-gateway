@@ -20,6 +20,17 @@
 /tolo.observation.v1.MeasurementIngestService/ReportMeasurements	destination=tolo-observation	anonymous=false	external=event_access	service=true	scopes=events.report	introspection=false
 /tolo.observation.v1.ObservationSettingsService/GetObservationSettings	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
 /tolo.observation.v1.ObservationSettingsService/UpdateObservationSettings	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
+/tolo.operation.v1.DeliveryCoordinationService/RecordFeedbackValues	destination=tolo-operation	anonymous=false	external=-	service=true	scopes=-	introspection=false
+/tolo.operation.v1.DeliveryCoordinationService/RequestProposalDelivery	destination=tolo-operation	anonymous=false	external=-	service=true	scopes=-	introspection=false
+/tolo.operation.v1.DeliveryCoordinationService/UpdateConnectionState	destination=tolo-operation	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
+/tolo.operation.v1.DigestService/GetHistoryDigest	destination=tolo-operation	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
+/tolo.operation.v1.OperationControlService/ApplyReassignment	destination=tolo-operation	anonymous=false	external=event_access	service=false	scopes=events.operate	introspection=false
+/tolo.operation.v1.OperationControlService/DirectReassignment	destination=tolo-operation	anonymous=false	external=event_access	service=false	scopes=events.operate	introspection=false
+/tolo.operation.v1.OperationControlService/ListReassignments	destination=tolo-operation	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
+/tolo.operation.v1.StaffCommunicationService/ListStaffMessages	destination=tolo-operation	anonymous=false	external=event_access	service=true	scopes=events.read	introspection=false
+/tolo.operation.v1.StaffCommunicationService/RevokeStaffMessage	destination=tolo-operation	anonymous=false	external=event_access	service=false	scopes=events.operate	introspection=false
+/tolo.operation.v1.StaffCommunicationService/SendStaffMessage	destination=tolo-operation	anonymous=false	external=event_access	service=false	scopes=events.operate	introspection=false
+/tolo.operation.v1.StaffCommunicationService/ShareGuidanceInfo	destination=tolo-operation	anonymous=false	external=event_access	service=false	scopes=events.operate	introspection=false
 /tolo.relation.v1.RelationAdminService/AddTenantMember	destination=tolo-tenant-management	anonymous=false	external=tenant_access	service=false	scopes=tenant.write	introspection=true
 /tolo.relation.v1.RelationAdminService/ChangeTenantRole	destination=tolo-tenant-management	anonymous=false	external=tenant_access	service=false	scopes=tenant.write	introspection=true
 /tolo.relation.v1.RelationAdminService/GrantEventRole	destination=tolo-tenant-management	anonymous=false	external=tenant_access	service=false	scopes=tenant.write	introspection=true
