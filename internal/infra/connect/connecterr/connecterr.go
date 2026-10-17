@@ -62,11 +62,11 @@ func DeadlineExceeded() *connectrpc.Error {
 // service answers an internal failure the same way.
 func InternalError(ctx context.Context, err error) *connectrpc.Error {
 	if errors.Is(err, context.Canceled) {
-		return Canceled()
+		return Canceled().WithCause(err)
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) {
-		return DeadlineExceeded()
+		return DeadlineExceeded().WithCause(err)
 	}
 
 	slog.ErrorContext(ctx, "internal error", "error", err)
