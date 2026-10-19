@@ -114,7 +114,7 @@ n が 1 以上なら、すべての `X-Forwarded-For` の値を出現順に並�
 `testbackend` は `server` の JWKS を取得して内部 JWT を検証するテスト用の後段サービスで、`jwtgen` で作った JWKS を配る手順の代わりになる  
 `greet.v1.GreetService/Greet` は内部 JWT を要求するが、`greet.v1.GreetService/Ping` は匿名で呼べる  
 `Ping` は Gateway 経由で通り、`Greet` は外部トークンを付けたときだけ通る（後述「外部トークンの検証」）  
-Tenant Management は compose にコンテナが無いため、匿名で呼べる `StartTenantRegistration` も宛先不達の `unavailable` になる
+Tenant Management は compose にコンテナが無いため、匿名で呼べる `StartTenantRegistration` と `ResolveTenantSubdomain` も宛先不達の `unavailable` になる
 
 ```bash
 curl http://localhost:8080/.well-known/jwks.json
@@ -126,9 +126,11 @@ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: Bearer x' -d
 curl -X POST -H 'Content-Type: application/json' -d '{"name":"tolo"}' http://localhost:8080/greet.v1.GreetService/Greet
 
 curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8080/tolo.tenant.v1.TenantService/StartTenantRegistration
+
+curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8080/tolo.tenant.v1.TenantService/ResolveTenantSubdomain
 ```
 
-上から順に、kid `dev-key-1` を含む JWKS、`{"message":"pong"}`、`{"code":"unauthenticated"}`、`{"code":"unauthenticated"}`、`{"code":"unavailable"}` を返す
+上から順に、kid `dev-key-1` を含む JWKS、`{"message":"pong"}`、`{"code":"unauthenticated"}`、`{"code":"unauthenticated"}`、`{"code":"unavailable"}`、`{"code":"unavailable"}` を返す
 
 #### 外部トークンの検証
 

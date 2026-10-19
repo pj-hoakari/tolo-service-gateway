@@ -31,12 +31,12 @@ github.com/pj-hoakari/tolo-graph-authoring v0.2.0-rc.0.20261016022610-0fb78cdf92
 github.com/pj-hoakari/tolo-graph-authoring v0.2.0-rc.0.20261016022610-0fb78cdf9234/go.mod h1:einVZDSv6zTBAxjtmhWo9k8YQBU1lt72rATJsIhEk/U=
 github.com/pj-hoakari/tolo-kernel-proto v0.4.0 h1:yEO6kFq3HubbZRXv9Ed2sIG7VGRm8WZ7O4tlwFROMDU=
 github.com/pj-hoakari/tolo-kernel-proto v0.4.0/go.mod h1:dH46KE1uBX0a+aL4VYDFYvdkuNPTmbFWcB6B/xjvekQ=
-github.com/pj-hoakari/tolo-observation v0.1.0-rc.0.20261016024438-b1ee8a0b4cc2 h1:xruS25SM0aUNhDI5vk2dA8NGo8+owiGZ2fbmR7qBYBg=
-github.com/pj-hoakari/tolo-observation v0.1.0-rc.0.20261016024438-b1ee8a0b4cc2/go.mod h1:NC5ayey+UOVEymyNwt+tyBgvzYZf3lICxvvwG5Ql2uw=
+github.com/pj-hoakari/tolo-observation v0.2.0-rc.0.20261019024006-0013e6f18190 h1:30CDNlUv56AeDO9uztFO/Mx6DlsN4xPBpTwQiKKp17k=
+github.com/pj-hoakari/tolo-observation v0.2.0-rc.0.20261019024006-0013e6f18190/go.mod h1:Y9qFbVDm0Q83hqYScRjx8C6eS9wuTzJPi+P4M9zK7Dw=
 github.com/pj-hoakari/tolo-operation v0.0.0-20261017035148-4bc5234f5136 h1:VEqYX0zlOShsWtdXO7c+bS8Py3CCpjOe2TCPMLpFSTI=
 github.com/pj-hoakari/tolo-operation v0.0.0-20261017035148-4bc5234f5136/go.mod h1:TKkLDa96n7hg0TBqX6H1sqCR0J7foAZbbePUPYgIgbQ=
-github.com/pj-hoakari/tolo-tenant-management v0.2.0 h1:+rqCQlMVX/hc8NFZ+PQVjyQGxUVRfiy1XHevdnRHFQk=
-github.com/pj-hoakari/tolo-tenant-management v0.2.0/go.mod h1:dMkAPtoxZTCY1ESu7/uGlyClYA//oH5Rv5hXkF/xRSg=
+github.com/pj-hoakari/tolo-tenant-management v0.4.0-dev h1:TXF4rjjmZPtRqPPI2gIG3rsiZ6VMJR8ot1vq/3Cv0kY=
+github.com/pj-hoakari/tolo-tenant-management v0.4.0-dev/go.mod h1:gvNMTgUwr4RrWQQRSeLLNoOUPh0huEmTmXzdi5ClExc=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=

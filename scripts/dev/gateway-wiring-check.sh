@@ -36,6 +36,9 @@ expect 401 'Greet without a token' greet.v1.GreetService/Greet '{"name":"tolo"}'
 expect 200 'Greet with greeting.read reaches testbackend' greet.v1.GreetService/Greet '{"name":"tolo"}' "${greeting}"
 expect 403 'Greet without greeting.read' greet.v1.GreetService/Greet '{"name":"tolo"}' "${no_scope}"
 expect 503 'GetGraph to an absent destination' tolo.graph.v1.GraphAuthoringService/GetGraph '{"eventId":"fedcba9876543210"}' "${event_read}"
+expect 503 'anonymous StartTenantRegistration is forwarded' tolo.tenant.v1.TenantService/StartTenantRegistration '{"name":"tolo","contractPlan":"standard"}'
+expect 503 'anonymous ResolveTenantSubdomain is forwarded' tolo.tenant.v1.TenantService/ResolveTenantSubdomain '{"subdomain":"test"}'
+expect 401 'GetEvent without a token' tolo.tenant.v1.TenantService/GetEvent '{"eventId":"fedcba9876543210"}'
 
 if [ "${failures}" -ne 0 ]; then
     printf '%d wiring check(s) failed\n' "${failures}" >&2
