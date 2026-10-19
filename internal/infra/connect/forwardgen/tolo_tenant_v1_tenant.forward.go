@@ -21,6 +21,10 @@ func (f *toloTenantV1TenantServiceForwarder) ClaimTenantOwnership(ctx context.Co
 	return forward.Unary(ctx, req, f.client.ClaimTenantOwnership)
 }
 
+func (f *toloTenantV1TenantServiceForwarder) ResolveTenantSubdomain(ctx context.Context, req *v1.ResolveTenantSubdomainRequest) (*v1.ResolveTenantSubdomainResponse, error) {
+	return forward.Unary(ctx, req, f.client.ResolveTenantSubdomain)
+}
+
 func (f *toloTenantV1TenantServiceForwarder) ChangeTenantContract(ctx context.Context, req *v1.ChangeTenantContractRequest) (*v1.ChangeTenantContractResponse, error) {
 	return forward.Unary(ctx, req, f.client.ChangeTenantContract)
 }

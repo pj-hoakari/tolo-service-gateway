@@ -42,5 +42,6 @@
 /tolo.tenant.v1.TenantService/CreateEvent	destination=tolo-tenant-management	anonymous=false	external=tenant_access	service=false	scopes=events.manage	introspection=false
 /tolo.tenant.v1.TenantService/GetEvent	destination=tolo-tenant-management	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.tenant.v1.TenantService/ListEvents	destination=tolo-tenant-management	anonymous=false	external=tenant_access	service=false	scopes=events.read	introspection=false
+/tolo.tenant.v1.TenantService/ResolveTenantSubdomain	destination=tolo-tenant-management	anonymous=true	external=-	service=false	scopes=-	introspection=false
 /tolo.tenant.v1.TenantService/StartTenantRegistration	destination=tolo-tenant-management	anonymous=true	external=-	service=false	scopes=-	introspection=false
 /tolo.tenant.v1.TenantService/TransitionEventStatus	destination=tolo-tenant-management	anonymous=false	external=tenant_access	service=false	scopes=events.manage	introspection=false
