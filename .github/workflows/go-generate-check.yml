@@ -19,7 +19,7 @@ jobs:
 
             - name: Detect changes
               id: changes
-              uses: pj-hoakari/actions/detect-changes@d5a03071134d13698e42b2afbf9ae1761ea64ca6 # v20261017.0.0
+              uses: pj-hoakari/actions/detect-changes@92b346752a66ad19a36fbc929191603f72e00fe9 # v20261020.0.2
               with:
                   paths: |
                       **/*.go
@@ -36,4 +36,4 @@ jobs:
 
             - name: Check generated code
               if: steps.changes.outputs.changed == 'true'
-              uses: pj-hoakari/actions/go/generate-check@d5a03071134d13698e42b2afbf9ae1761ea64ca6 # v20261017.0.0
+              uses: pj-hoakari/actions/go/generate-check@92b346752a66ad19a36fbc929191603f72e00fe9 # v20261020.0.2
