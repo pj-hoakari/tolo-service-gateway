@@ -1,0 +1,68 @@
+name: Preview
+
+on:
+    issue_comment:
+        types: [created]
+    pull_request:
+        types: [synchronize, closed]
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ ((github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.body == '/preview') || (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.body == '/preview stop') || (github.event_name == 'pull_request' && github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'preview')) || (github.event_name == 'pull_request' && github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'preview'))) && format('preview-{0}', github.event.issue.number || github.event.pull_request.number) || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    publish:
+        if: (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.body == '/preview') || (github.event_name == 'pull_request' && github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'preview'))
+        uses: ./.github/workflows/publish-preview-image.yml
+        permissions:
+            contents: read
+            packages: write
+            pull-requests: read
+        with:
+            pull-request: ${{ github.event.issue.number || github.event.pull_request.number }}
+
+    request:
+        needs: publish
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            pull-requests: read
+
+        steps:
+            - name: Resolve pull request head
+              id: pr
+              uses: pj-hoakari/actions/pull-request-head@0d8901eb17d6fea2a3e2dab849cc17bd9c308bc4 # v20261020.0.1
+              with:
+                  number: ${{ github.event.issue.number || github.event.pull_request.number }}
+
+            - name: Dispatch preview
+              uses: pj-hoakari/actions/dispatch-preview@0d8901eb17d6fea2a3e2dab849cc17bd9c308bc4 # v20261020.0.1
+              with:
+                  action: ${{ github.event_name == 'issue_comment' && 'start' || 'update' }}
+                  number: ${{ steps.pr.outputs.number }}
+                  tag: ${{ steps.pr.outputs.tag }}
+                  client-id: ${{ vars.PREVIEW_APP_CLIENT_ID }}
+                  private-key: ${{ secrets.PREVIEW_APP_PRIVATE_KEY }}
+
+    stop:
+        if: (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.body == '/preview stop') || (github.event_name == 'pull_request' && github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'preview'))
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            pull-requests: read
+
+        steps:
+            - name: Check the commenter
+              if: github.event_name == 'issue_comment'
+              uses: pj-hoakari/actions/pull-request-head@0d8901eb17d6fea2a3e2dab849cc17bd9c308bc4 # v20261020.0.1
+
+            - name: Dispatch preview
+              uses: pj-hoakari/actions/dispatch-preview@0d8901eb17d6fea2a3e2dab849cc17bd9c308bc4 # v20261020.0.1
+              with:
+                  action: stop
+                  number: ${{ github.event.issue.number || github.event.pull_request.number }}
+                  client-id: ${{ vars.PREVIEW_APP_CLIENT_ID }}
+                  private-key: ${{ secrets.PREVIEW_APP_PRIVATE_KEY }}
