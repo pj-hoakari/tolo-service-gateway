@@ -171,5 +171,33 @@ func Edges() []edgepolicy.Edge {
 			MachineChain:        false,
 			NewMachineOrigin:    true,
 		},
+		{
+			Caller:              guestCaller,
+			Procedure:           graphv1connect.GraphSupplyServiceGetDisplayNamesProcedure,
+			UserOriginTokenUses: nil,
+			MachineChain:        false,
+			NewMachineOrigin:    true,
+		},
+		{
+			Caller:              guestCaller,
+			Procedure:           graphv1connect.GraphSupplyServiceGetQrLocationsProcedure,
+			UserOriginTokenUses: nil,
+			MachineChain:        false,
+			NewMachineOrigin:    true,
+		},
+		{
+			Caller:              guestCaller,
+			Procedure:           observationv1connect.StatusQueryServiceGetGuestSnapshotProcedure,
+			UserOriginTokenUses: nil,
+			MachineChain:        false,
+			NewMachineOrigin:    true,
+		},
+		{
+			Caller:              guestCaller,
+			Procedure:           observationv1connect.MeasurementIngestServiceReportMeasurementsProcedure,
+			UserOriginTokenUses: nil,
+			MachineChain:        false,
+			NewMachineOrigin:    true,
+		},
 	}
 }

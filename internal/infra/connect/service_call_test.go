@@ -436,6 +436,58 @@ func requestProposalDelivery(t *testing.T, f serviceFixture, header map[string]s
 	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
 }
 
+func getDisplayNames(t *testing.T, f serviceFixture, header map[string]string) error {
+	t.Helper()
+
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	for key, value := range header {
+		info.RequestHeader().Set(key, value)
+	}
+
+	_, err := f.graphs.GetDisplayNames(ctx, &graphv1.GetDisplayNamesRequest{EventId: contextEventID})
+
+	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
+}
+
+func getQrLocations(t *testing.T, f serviceFixture, header map[string]string) error {
+	t.Helper()
+
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	for key, value := range header {
+		info.RequestHeader().Set(key, value)
+	}
+
+	_, err := f.graphs.GetQrLocations(ctx, &graphv1.GetQrLocationsRequest{EventId: contextEventID})
+
+	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
+}
+
+func getGuestSnapshot(t *testing.T, f serviceFixture, header map[string]string) error {
+	t.Helper()
+
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	for key, value := range header {
+		info.RequestHeader().Set(key, value)
+	}
+
+	_, err := f.statuses.GetGuestSnapshot(ctx, &observationv1.GetGuestSnapshotRequest{EventId: contextEventID})
+
+	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
+}
+
+func reportMeasurements(t *testing.T, f serviceFixture, header map[string]string) error {
+	t.Helper()
+
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	for key, value := range header {
+		info.RequestHeader().Set(key, value)
+	}
+
+	_, err := f.measurements.ReportMeasurements(ctx, &observationv1.ReportMeasurementsRequest{EventId: contextEventID})
+
+	return err //nolint:wrapcheck // the test asserts on the error the gateway returns
+}
+
 func bearerHeader(token string) map[string]string {
 	return map[string]string{"Authorization": "Bearer " + token}
 }
@@ -914,6 +966,63 @@ func TestInternalListenerReissuesOperationCalls(t *testing.T) {
 				"result":         "ok",
 				"caller_service": test.caller,
 				"origin":         test.wantOrigin,
+			})
+		})
+	}
+}
+
+func TestInternalListenerReissuesGuestMachineOriginCalls(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		call        func(t *testing.T, f serviceFixture, header map[string]string) error
+		method      string
+		destination string
+	}{
+		"a display name pull": {
+			call:        getDisplayNames,
+			method:      graphv1connect.GraphSupplyServiceGetDisplayNamesProcedure,
+			destination: graphAuthoring,
+		},
+		"a QR location pull": {
+			call:        getQrLocations,
+			method:      graphv1connect.GraphSupplyServiceGetQrLocationsProcedure,
+			destination: graphAuthoring,
+		},
+		"a guest snapshot pull": {
+			call:        getGuestSnapshot,
+			method:      observationv1connect.StatusQueryServiceGetGuestSnapshotProcedure,
+			destination: observation,
+		},
+		"a QR scan report": {
+			call:        reportMeasurements,
+			method:      observationv1connect.MeasurementIngestServiceReportMeasurementsProcedure,
+			destination: observation,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newServiceGateway(t, config.InboundInternal)
+
+			if err := test.call(t, f, map[string]string{"Tolo-Caller-Service": guest}); err != nil {
+				t.Fatalf("call error = %v, want nil", err)
+			}
+
+			_, claims := f.forwarded(t, test.destination)
+
+			if claims.Subject != guest || claims.TokenUse != internaljwt.TokenUseService || claims.Scope != "" {
+				t.Errorf("forwarded sub=%q token_use=%q scope=%q, want %q %q and no scope",
+					claims.Subject, claims.TokenUse, claims.Scope, guest, internaljwt.TokenUseService)
+			}
+
+			assertAudit(t, singleAuditRecord(t, f.audit), map[string]any{
+				"method":         test.method,
+				"result":         "ok",
+				"caller_service": guest,
+				"origin":         "new_machine",
 			})
 		})
 	}
