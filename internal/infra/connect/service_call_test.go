@@ -21,6 +21,10 @@ import (
 	"github.com/pj-hoakari/internal-jwt-handling/verifier"
 	graphv1 "github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1"
 	"github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
+	guestv1 "github.com/pj-hoakari/tolo-guest/gen/tolo/guest/v1"
+	"github.com/pj-hoakari/tolo-guest/gen/tolo/guest/v1/guestv1connect"
+	observationv1 "github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1"
+	"github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1/observationv1connect"
 	operationv1 "github.com/pj-hoakari/tolo-operation/gen/tolo/operation/v1"
 	"github.com/pj-hoakari/tolo-operation/gen/tolo/operation/v1/operationv1connect"
 	tenantv1 "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1"
@@ -75,6 +79,80 @@ func (s upstreamGraphSupplyService) GetObservationPointMappings(
 	return &graphv1.GetMappingsResponse{}, nil
 }
 
+func (s upstreamGraphSupplyService) GetDisplayNames(
+	ctx context.Context,
+	_ *graphv1.GetDisplayNamesRequest,
+) (*graphv1.GetDisplayNamesResponse, error) {
+	s.calls <- requestHeaderOf(ctx)
+
+	return &graphv1.GetDisplayNamesResponse{}, nil
+}
+
+func (s upstreamGraphSupplyService) GetQrLocations(
+	ctx context.Context,
+	_ *graphv1.GetQrLocationsRequest,
+) (*graphv1.GetQrLocationsResponse, error) {
+	s.calls <- requestHeaderOf(ctx)
+
+	return &graphv1.GetQrLocationsResponse{}, nil
+}
+
+type upstreamStatusQueryService struct {
+	observationv1connect.UnimplementedStatusQueryServiceHandler
+	calls chan http.Header
+}
+
+func (s upstreamStatusQueryService) GetGuestSnapshot(
+	ctx context.Context,
+	_ *observationv1.GetGuestSnapshotRequest,
+) (*observationv1.GetGuestSnapshotResponse, error) {
+	s.calls <- requestHeaderOf(ctx)
+
+	return &observationv1.GetGuestSnapshotResponse{}, nil
+}
+
+type upstreamMeasurementIngestService struct {
+	observationv1connect.UnimplementedMeasurementIngestServiceHandler
+	calls chan http.Header
+}
+
+func (s upstreamMeasurementIngestService) ReportMeasurements(
+	ctx context.Context,
+	_ *observationv1.ReportMeasurementsRequest,
+) (*observationv1.ReportMeasurementsResponse, error) {
+	s.calls <- requestHeaderOf(ctx)
+
+	return &observationv1.ReportMeasurementsResponse{}, nil
+}
+
+type upstreamGuestPageService struct {
+	guestv1connect.UnimplementedGuestPageServiceHandler
+	calls chan http.Header
+}
+
+func (s upstreamGuestPageService) OpenGuestPage(
+	ctx context.Context,
+	_ *guestv1.OpenGuestPageRequest,
+) (*guestv1.OpenGuestPageResponse, error) {
+	s.calls <- requestHeaderOf(ctx)
+
+	return &guestv1.OpenGuestPageResponse{}, nil
+}
+
+type upstreamGuestSettingsService struct {
+	guestv1connect.UnimplementedGuestSettingsServiceHandler
+	calls chan http.Header
+}
+
+func (s upstreamGuestSettingsService) GetGuestSettings(
+	ctx context.Context,
+	_ *guestv1.GetGuestSettingsRequest,
+) (*guestv1.GuestSettings, error) {
+	s.calls <- requestHeaderOf(ctx)
+
+	return &guestv1.GuestSettings{}, nil
+}
+
 type upstreamStaffCommunicationService struct {
 	operationv1connect.UnimplementedStaffCommunicationServiceHandler
 	calls chan http.Header
@@ -107,11 +185,15 @@ type serviceFixture struct {
 	tenants    tenantv1connect.TenantServiceClient
 	graphs     graphv1connect.GraphSupplyServiceClient
 	staff      operationv1connect.StaffCommunicationServiceClient
-	deliveries operationv1connect.DeliveryCoordinationServiceClient
-	issuer     *issuer.Issuer
-	backend    *verifier.ContextVerifier
-	upstream   chan http.Header
-	audit      *bytes.Buffer
+	deliveries    operationv1connect.DeliveryCoordinationServiceClient
+	statuses      observationv1connect.StatusQueryServiceClient
+	measurements  observationv1connect.MeasurementIngestServiceClient
+	guestPages    guestv1connect.GuestPageServiceClient
+	guestSettings guestv1connect.GuestSettingsServiceClient
+	issuer        *issuer.Issuer
+	backend       *verifier.ContextVerifier
+	upstream      chan http.Header
+	audit         *bytes.Buffer
 }
 
 func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
@@ -169,6 +251,22 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 		UnimplementedDeliveryCoordinationServiceHandler: operationv1connect.UnimplementedDeliveryCoordinationServiceHandler{},
 		calls: calls,
 	})
+	observationv1connect.RegisterStatusQueryServiceHandler(server, upstreamStatusQueryService{
+		UnimplementedStatusQueryServiceHandler: observationv1connect.UnimplementedStatusQueryServiceHandler{},
+		calls:                                  calls,
+	})
+	observationv1connect.RegisterMeasurementIngestServiceHandler(server, upstreamMeasurementIngestService{
+		UnimplementedMeasurementIngestServiceHandler: observationv1connect.UnimplementedMeasurementIngestServiceHandler{},
+		calls: calls,
+	})
+	guestv1connect.RegisterGuestPageServiceHandler(server, upstreamGuestPageService{
+		UnimplementedGuestPageServiceHandler: guestv1connect.UnimplementedGuestPageServiceHandler{},
+		calls:                                calls,
+	})
+	guestv1connect.RegisterGuestSettingsServiceHandler(server, upstreamGuestSettingsService{
+		UnimplementedGuestSettingsServiceHandler: guestv1connect.UnimplementedGuestSettingsServiceHandler{},
+		calls:                                    calls,
+	})
 	connecthttp.Mount(mux, server)
 
 	upstream := httptest.NewServer(mux)
@@ -211,11 +309,15 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 		tenants:    tenantv1connect.NewTenantServiceClient(client),
 		graphs:     graphv1connect.NewGraphSupplyServiceClient(client),
 		staff:      operationv1connect.NewStaffCommunicationServiceClient(client),
-		deliveries: operationv1connect.NewDeliveryCoordinationServiceClient(client),
-		issuer:     gatewayIssuer,
-		backend:    contexts,
-		upstream:   calls,
-		audit:      logs,
+		deliveries:    operationv1connect.NewDeliveryCoordinationServiceClient(client),
+		statuses:      observationv1connect.NewStatusQueryServiceClient(client),
+		measurements:  observationv1connect.NewMeasurementIngestServiceClient(client),
+		guestPages:    guestv1connect.NewGuestPageServiceClient(client),
+		guestSettings: guestv1connect.NewGuestSettingsServiceClient(client),
+		issuer:        gatewayIssuer,
+		backend:       contexts,
+		upstream:      calls,
+		audit:         logs,
 	}
 }
 
@@ -815,4 +917,57 @@ func TestInternalListenerReissuesOperationCalls(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestPublicListenerForwardsAnAnonymousGuestPageWithoutAuthorization(t *testing.T) {
+	t.Parallel()
+
+	f := newServiceGateway(t, config.InboundPublic)
+
+	_, err := f.guestPages.OpenGuestPage(t.Context(), &guestv1.OpenGuestPageRequest{EventId: contextEventID})
+	if err != nil {
+		t.Fatalf("OpenGuestPage() error = %v, want nil", err)
+	}
+
+	var forwarded http.Header
+
+	select {
+	case forwarded = <-f.upstream:
+	default:
+		t.Fatal("the upstream was not called")
+	}
+
+	if got := forwarded.Values("Authorization"); len(got) != 0 {
+		t.Errorf("forwarded Authorization = %q, want none", got)
+	}
+
+	assertAudit(t, singleAuditRecord(t, f.audit), map[string]any{
+		"method": guestv1connect.GuestPageServiceOpenGuestPageProcedure,
+		"result": "ok",
+	})
+}
+
+func TestPublicListenerExchangesAStaffTokenForGuestSettings(t *testing.T) {
+	t.Parallel()
+
+	f := newServiceGateway(t, config.InboundPublic)
+
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	info.RequestHeader().Set("Authorization", "Bearer "+staffToken)
+
+	if _, err := f.guestSettings.GetGuestSettings(ctx, &guestv1.GetGuestSettingsRequest{EventId: contextEventID}); err != nil {
+		t.Fatalf("GetGuestSettings() error = %v, want nil", err)
+	}
+
+	_, claims := f.forwarded(t, guest)
+
+	if claims.TokenUse != internaljwt.TokenUseEventAccess || claims.Subject != externalSubject || claims.EventPublicID != contextEventID {
+		t.Errorf("forwarded token_use=%q sub=%q event_id=%q, want %q %q %q",
+			claims.TokenUse, claims.Subject, claims.EventPublicID, internaljwt.TokenUseEventAccess, externalSubject, contextEventID)
+	}
+
+	assertAudit(t, singleAuditRecord(t, f.audit), map[string]any{
+		"method": guestv1connect.GuestSettingsServiceGetGuestSettingsProcedure,
+		"result": "ok",
+	})
 }

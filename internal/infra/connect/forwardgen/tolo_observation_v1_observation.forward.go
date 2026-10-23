@@ -41,6 +41,18 @@ func (f *toloObservationV1EdgeDeviceServiceForwarder) UpdateObservationPointConf
 	return forward.Unary(ctx, req, f.client.UpdateObservationPointConfig)
 }
 
+type toloObservationV1StatusQueryServiceForwarder struct {
+	client observationv1connect.StatusQueryServiceClient
+}
+
+func (f *toloObservationV1StatusQueryServiceForwarder) GetGuestSnapshot(ctx context.Context, req *v1.GetGuestSnapshotRequest) (*v1.GetGuestSnapshotResponse, error) {
+	return forward.Unary(ctx, req, f.client.GetGuestSnapshot)
+}
+
+func (f *toloObservationV1StatusQueryServiceForwarder) GetEventOverview(ctx context.Context, req *v1.GetEventOverviewRequest) (*v1.GetEventOverviewResponse, error) {
+	return forward.Unary(ctx, req, f.client.GetEventOverview)
+}
+
 type toloObservationV1ObservationSettingsServiceForwarder struct {
 	client observationv1connect.ObservationSettingsServiceClient
 }

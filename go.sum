@@ -29,10 +29,12 @@ github.com/pj-hoakari/protoc-gen-authz-go v0.3.0 h1:oLKiB3M/JaFROsHR7NHU0+kN6IZz
 github.com/pj-hoakari/protoc-gen-authz-go v0.3.0/go.mod h1:wrZQc2mY9d2WXSt/7P3+4Fp5yesNuQPCrEWqt6UGPqI=
 github.com/pj-hoakari/tolo-graph-authoring v0.2.0-rc.0.20261016022610-0fb78cdf9234 h1:8cEYO+ACU3PWFEHPt++bNpC94u5SJBrDs+vCu8wzxHk=
 github.com/pj-hoakari/tolo-graph-authoring v0.2.0-rc.0.20261016022610-0fb78cdf9234/go.mod h1:einVZDSv6zTBAxjtmhWo9k8YQBU1lt72rATJsIhEk/U=
+github.com/pj-hoakari/tolo-guest v0.0.0-20261023123436-2eb45f8e4d80 h1:I1zQlvr33M+o0Wr+lh1/2r03XKZCHbq0AZCuE26fJ6o=
+github.com/pj-hoakari/tolo-guest v0.0.0-20261023123436-2eb45f8e4d80/go.mod h1:yxMIvXZMuqhOUChwlRitdfvkL1rtbvQYq0jNOhqIZwY=
 github.com/pj-hoakari/tolo-kernel-proto v0.4.0 h1:yEO6kFq3HubbZRXv9Ed2sIG7VGRm8WZ7O4tlwFROMDU=
 github.com/pj-hoakari/tolo-kernel-proto v0.4.0/go.mod h1:dH46KE1uBX0a+aL4VYDFYvdkuNPTmbFWcB6B/xjvekQ=
-github.com/pj-hoakari/tolo-observation v0.2.0-rc.0.20261019024006-0013e6f18190 h1:30CDNlUv56AeDO9uztFO/Mx6DlsN4xPBpTwQiKKp17k=
-github.com/pj-hoakari/tolo-observation v0.2.0-rc.0.20261019024006-0013e6f18190/go.mod h1:Y9qFbVDm0Q83hqYScRjx8C6eS9wuTzJPi+P4M9zK7Dw=
+github.com/pj-hoakari/tolo-observation v0.3.0-rc.0.20261023113241-a0a8a0d4a0b8 h1:v+CuLCUiQ2wX2xhANnD5Sumaw8doIUL7qxY1pXjvElQ=
+github.com/pj-hoakari/tolo-observation v0.3.0-rc.0.20261023113241-a0a8a0d4a0b8/go.mod h1:K6/cbfHwJgnuMOCD843piAuDE5tB6HiU/mp9YTeO/5M=
 github.com/pj-hoakari/tolo-operation v0.0.0-20261017035148-4bc5234f5136 h1:VEqYX0zlOShsWtdXO7c+bS8Py3CCpjOe2TCPMLpFSTI=
 github.com/pj-hoakari/tolo-operation v0.0.0-20261017035148-4bc5234f5136/go.mod h1:TKkLDa96n7hg0TBqX6H1sqCR0J7foAZbbePUPYgIgbQ=
 github.com/pj-hoakari/tolo-tenant-management v0.4.0-dev h1:TXF4rjjmZPtRqPPI2gIG3rsiZ6VMJR8ot1vq/3Cv0kY=
