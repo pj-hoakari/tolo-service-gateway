@@ -17,6 +17,7 @@
 /tolo.guest.v1.GuestPageService/ListGuestMessages	destination=tolo-guest	anonymous=true	external=-	service=false	scopes=-	introspection=false
 /tolo.guest.v1.GuestPageService/OpenGuestPage	destination=tolo-guest	anonymous=true	external=-	service=false	scopes=-	introspection=false
 /tolo.guest.v1.GuestSettingsService/GetGuestSettings	destination=tolo-guest	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
+/tolo.guest.v1.GuestSettingsService/ListIssuedUrls	destination=tolo-guest	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
 /tolo.guest.v1.GuestSettingsService/UpdateGuestSettings	destination=tolo-guest	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
 /tolo.observation.v1.EdgeDeviceService/Heartbeat	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.report	introspection=false
 /tolo.observation.v1.EdgeDeviceService/ListEdgeDevices	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false

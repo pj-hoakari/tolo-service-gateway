@@ -40,3 +40,7 @@ func (f *toloGuestV1GuestSettingsServiceForwarder) GetGuestSettings(ctx context.
 func (f *toloGuestV1GuestSettingsServiceForwarder) UpdateGuestSettings(ctx context.Context, req *v1.UpdateGuestSettingsRequest) (*v1.GuestSettings, error) {
 	return forward.Unary(ctx, req, f.client.UpdateGuestSettings)
 }
+
+func (f *toloGuestV1GuestSettingsServiceForwarder) ListIssuedUrls(ctx context.Context, req *v1.ListIssuedUrlsRequest) (*v1.ListIssuedUrlsResponse, error) {
+	return forward.Unary(ctx, req, f.client.ListIssuedUrls)
+}
