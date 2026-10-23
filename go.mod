@@ -20,7 +20,7 @@ require (
 	github.com/pj-hoakari/tolo-graph-authoring v0.2.0-rc.0.20261016022610-0fb78cdf9234
 	github.com/pj-hoakari/tolo-guest v0.0.0-20261023123436-2eb45f8e4d80
 	github.com/pj-hoakari/tolo-kernel-proto v0.4.0
-	github.com/pj-hoakari/tolo-observation v0.3.0-rc.0.20261023113241-a0a8a0d4a0b8
+	github.com/pj-hoakari/tolo-observation v0.4.0-rc
 	github.com/pj-hoakari/tolo-operation v0.0.0-20261017035148-4bc5234f5136
 	github.com/pj-hoakari/tolo-tenant-management v0.4.0-dev
 	go.opentelemetry.io/otel v1.47.0
