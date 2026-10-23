@@ -5,6 +5,7 @@ package forwardgen
 import (
 	connect "connectrpc.com/connect/v2"
 	graphv1connect "github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
+	guestv1connect "github.com/pj-hoakari/tolo-guest/gen/tolo/guest/v1/guestv1connect"
 	observationv1connect "github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1/observationv1connect"
 	operationv1connect "github.com/pj-hoakari/tolo-operation/gen/tolo/operation/v1/operationv1connect"
 	greetv1connect "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
@@ -43,6 +44,24 @@ func Mounts() []forward.Mount {
 			},
 		},
 		{
+			Service: guestv1connect.GuestPageServiceName,
+			Register: func(server *connect.Server, client *connect.Client) {
+				guestv1connect.RegisterGuestPageServiceHandler(
+					server,
+					&toloGuestV1GuestPageServiceForwarder{client: guestv1connect.NewGuestPageServiceClient(client)},
+				)
+			},
+		},
+		{
+			Service: guestv1connect.GuestSettingsServiceName,
+			Register: func(server *connect.Server, client *connect.Client) {
+				guestv1connect.RegisterGuestSettingsServiceHandler(
+					server,
+					&toloGuestV1GuestSettingsServiceForwarder{client: guestv1connect.NewGuestSettingsServiceClient(client)},
+				)
+			},
+		},
+		{
 			Service: observationv1connect.EdgeDeviceServiceName,
 			Register: func(server *connect.Server, client *connect.Client) {
 				observationv1connect.RegisterEdgeDeviceServiceHandler(
@@ -66,6 +85,15 @@ func Mounts() []forward.Mount {
 				observationv1connect.RegisterObservationSettingsServiceHandler(
 					server,
 					&toloObservationV1ObservationSettingsServiceForwarder{client: observationv1connect.NewObservationSettingsServiceClient(client)},
+				)
+			},
+		},
+		{
+			Service: observationv1connect.StatusQueryServiceName,
+			Register: func(server *connect.Server, client *connect.Client) {
+				observationv1connect.RegisterStatusQueryServiceHandler(
+					server,
+					&toloObservationV1StatusQueryServiceForwarder{client: observationv1connect.NewStatusQueryServiceClient(client)},
 				)
 			},
 		},

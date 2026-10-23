@@ -3,6 +3,7 @@ package catalog
 import (
 	internaljwt "github.com/pj-hoakari/internal-jwt-handling"
 	"github.com/pj-hoakari/tolo-graph-authoring/gen/tolo/graph/v1/graphv1connect"
+	"github.com/pj-hoakari/tolo-guest/gen/tolo/guest/v1/guestv1connect"
 	"github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1/observationv1connect"
 	"github.com/pj-hoakari/tolo-operation/gen/tolo/operation/v1/operationv1connect"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1/relationv1connect"
@@ -19,10 +20,11 @@ const (
 	graphAuthoringDestination   = "tolo-graph-authoring"
 	observationDestination      = "tolo-observation"
 	operationDestination        = "tolo-operation"
+	guestDestination            = "tolo-guest"
 
 	graphAuthoringCaller = graphAuthoringDestination
 	observationCaller    = observationDestination
-	guestCaller          = "tolo-guest"
+	guestCaller          = guestDestination
 )
 
 func Bindings() []registry.Binding {
@@ -68,6 +70,11 @@ func Bindings() []registry.Binding {
 			Policies:    observationv1connect.ObservationSettingsServicePolicies,
 		},
 		{
+			Service:     observationv1connect.StatusQueryServiceName,
+			Destination: observationDestination,
+			Policies:    observationv1connect.StatusQueryServicePolicies,
+		},
+		{
 			Service:     operationv1connect.StaffCommunicationServiceName,
 			Destination: operationDestination,
 			Policies:    operationv1connect.StaffCommunicationServicePolicies,
@@ -86,6 +93,16 @@ func Bindings() []registry.Binding {
 			Service:     operationv1connect.DigestServiceName,
 			Destination: operationDestination,
 			Policies:    operationv1connect.DigestServicePolicies,
+		},
+		{
+			Service:     guestv1connect.GuestPageServiceName,
+			Destination: guestDestination,
+			Policies:    guestv1connect.GuestPageServicePolicies,
+		},
+		{
+			Service:     guestv1connect.GuestSettingsServiceName,
+			Destination: guestDestination,
+			Policies:    guestv1connect.GuestSettingsServicePolicies,
 		},
 	}
 }
@@ -150,6 +167,34 @@ func Edges() []edgepolicy.Edge {
 		{
 			Caller:              guestCaller,
 			Procedure:           operationv1connect.StaffCommunicationServiceListStaffMessagesProcedure,
+			UserOriginTokenUses: nil,
+			MachineChain:        false,
+			NewMachineOrigin:    true,
+		},
+		{
+			Caller:              guestCaller,
+			Procedure:           graphv1connect.GraphSupplyServiceGetDisplayNamesProcedure,
+			UserOriginTokenUses: nil,
+			MachineChain:        false,
+			NewMachineOrigin:    true,
+		},
+		{
+			Caller:              guestCaller,
+			Procedure:           graphv1connect.GraphSupplyServiceGetQrLocationsProcedure,
+			UserOriginTokenUses: nil,
+			MachineChain:        false,
+			NewMachineOrigin:    true,
+		},
+		{
+			Caller:              guestCaller,
+			Procedure:           observationv1connect.StatusQueryServiceGetGuestSnapshotProcedure,
+			UserOriginTokenUses: nil,
+			MachineChain:        false,
+			NewMachineOrigin:    true,
+		},
+		{
+			Caller:              guestCaller,
+			Procedure:           observationv1connect.MeasurementIngestServiceReportMeasurementsProcedure,
 			UserOriginTokenUses: nil,
 			MachineChain:        false,
 			NewMachineOrigin:    true,

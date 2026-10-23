@@ -12,6 +12,12 @@
 /tolo.graph.v1.GraphSupplyService/GetGatePoints	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.graph.v1.GraphSupplyService/GetObservationPointMappings	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.graph.v1.GraphSupplyService/GetQrLocations	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
+/tolo.guest.v1.GuestPageService/GetCrowd	destination=tolo-guest	anonymous=true	external=-	service=false	scopes=-	introspection=false
+/tolo.guest.v1.GuestPageService/GetQueues	destination=tolo-guest	anonymous=true	external=-	service=false	scopes=-	introspection=false
+/tolo.guest.v1.GuestPageService/ListGuestMessages	destination=tolo-guest	anonymous=true	external=-	service=false	scopes=-	introspection=false
+/tolo.guest.v1.GuestPageService/OpenGuestPage	destination=tolo-guest	anonymous=true	external=-	service=false	scopes=-	introspection=false
+/tolo.guest.v1.GuestSettingsService/GetGuestSettings	destination=tolo-guest	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
+/tolo.guest.v1.GuestSettingsService/UpdateGuestSettings	destination=tolo-guest	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
 /tolo.observation.v1.EdgeDeviceService/Heartbeat	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.report	introspection=false
 /tolo.observation.v1.EdgeDeviceService/ListEdgeDevices	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
 /tolo.observation.v1.EdgeDeviceService/RegisterEdgeDevice	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
@@ -20,6 +26,8 @@
 /tolo.observation.v1.MeasurementIngestService/ReportMeasurements	destination=tolo-observation	anonymous=false	external=event_access	service=true	scopes=events.report	introspection=false
 /tolo.observation.v1.ObservationSettingsService/GetObservationSettings	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
 /tolo.observation.v1.ObservationSettingsService/UpdateObservationSettings	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
+/tolo.observation.v1.StatusQueryService/GetEventOverview	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
+/tolo.observation.v1.StatusQueryService/GetGuestSnapshot	destination=tolo-observation	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.operation.v1.DeliveryCoordinationService/RecordFeedbackValues	destination=tolo-operation	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.operation.v1.DeliveryCoordinationService/RequestProposalDelivery	destination=tolo-operation	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.operation.v1.DeliveryCoordinationService/UpdateConnectionState	destination=tolo-operation	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
