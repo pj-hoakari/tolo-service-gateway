@@ -6,6 +6,7 @@ import (
 	"github.com/pj-hoakari/tolo-guest/gen/tolo/guest/v1/guestv1connect"
 	"github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1/observationv1connect"
 	"github.com/pj-hoakari/tolo-operation/gen/tolo/operation/v1/operationv1connect"
+	"github.com/pj-hoakari/tolo-realtime/gen/tolo/realtime/v1/realtimev1connect"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1/relationv1connect"
 	"github.com/pj-hoakari/tolo-tenant-management/gen/tolo/tenant/v1/tenantv1connect"
 
@@ -21,6 +22,7 @@ const (
 	observationDestination      = "tolo-observation"
 	operationDestination        = "tolo-operation"
 	guestDestination            = "tolo-guest"
+	realtimeDestination         = "tolo-realtime"
 
 	graphAuthoringCaller = graphAuthoringDestination
 	observationCaller    = observationDestination
@@ -103,6 +105,11 @@ func Bindings() []registry.Binding {
 			Service:     guestv1connect.GuestSettingsServiceName,
 			Destination: guestDestination,
 			Policies:    guestv1connect.GuestSettingsServicePolicies,
+		},
+		{
+			Service:     realtimev1connect.RealtimeFetchServiceName,
+			Destination: realtimeDestination,
+			Policies:    realtimev1connect.RealtimeFetchServicePolicies,
 		},
 	}
 }
