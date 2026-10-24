@@ -8,6 +8,7 @@ import (
 	guestv1connect "github.com/pj-hoakari/tolo-guest/gen/tolo/guest/v1/guestv1connect"
 	observationv1connect "github.com/pj-hoakari/tolo-observation/gen/tolo/observation/v1/observationv1connect"
 	operationv1connect "github.com/pj-hoakari/tolo-operation/gen/tolo/operation/v1/operationv1connect"
+	realtimev1connect "github.com/pj-hoakari/tolo-realtime/gen/tolo/realtime/v1/realtimev1connect"
 	greetv1connect "github.com/pj-hoakari/tolo-service-gateway/gen/greet/v1/greetv1connect"
 	forward "github.com/pj-hoakari/tolo-service-gateway/internal/infra/connect/forward"
 	relationv1connect "github.com/pj-hoakari/tolo-tenant-management/gen/tolo/relation/v1/relationv1connect"
@@ -130,6 +131,15 @@ func Mounts() []forward.Mount {
 				operationv1connect.RegisterStaffCommunicationServiceHandler(
 					server,
 					&toloOperationV1StaffCommunicationServiceForwarder{client: operationv1connect.NewStaffCommunicationServiceClient(client)},
+				)
+			},
+		},
+		{
+			Service: realtimev1connect.RealtimeFetchServiceName,
+			Register: func(server *connect.Server, client *connect.Client) {
+				realtimev1connect.RegisterRealtimeFetchServiceHandler(
+					server,
+					&toloRealtimeV1RealtimeFetchServiceForwarder{client: realtimev1connect.NewRealtimeFetchServiceClient(client)},
 				)
 			},
 		},

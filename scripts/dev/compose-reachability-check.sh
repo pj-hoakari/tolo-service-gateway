@@ -48,7 +48,7 @@ expect_unreachable() {
 }
 
 backends=''
-for svc in testbackend tenant-management graph-authoring observation operation guest; do
+for svc in testbackend tenant-management graph-authoring observation operation guest realtime; do
     is_running "${svc}" && backends="${backends} ${svc}"
 done
 stores="$(printf '%s\n' "${running}" | grep -E -- '-db$|^flow-control$' || true)"
