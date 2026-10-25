@@ -29,6 +29,10 @@ func (f *toloGuestV1GuestPageServiceForwarder) ListGuestMessages(ctx context.Con
 	return forward.Unary(ctx, req, f.client.ListGuestMessages)
 }
 
+func (f *toloGuestV1GuestPageServiceForwarder) GetGuideMap(ctx context.Context, req *v1.GetGuideMapRequest) (*v1.GetGuideMapResponse, error) {
+	return forward.Unary(ctx, req, f.client.GetGuideMap)
+}
+
 type toloGuestV1GuestSettingsServiceForwarder struct {
 	client guestv1connect.GuestSettingsServiceClient
 }

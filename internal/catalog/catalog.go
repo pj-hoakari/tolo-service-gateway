@@ -194,6 +194,13 @@ func Edges() []edgepolicy.Edge {
 		},
 		{
 			Caller:              guestCaller,
+			Procedure:           graphv1connect.GraphSupplyServiceGetGuideMapLayoutProcedure,
+			UserOriginTokenUses: nil,
+			MachineChain:        false,
+			NewMachineOrigin:    true,
+		},
+		{
+			Caller:              guestCaller,
 			Procedure:           observationv1connect.StatusQueryServiceGetGuestSnapshotProcedure,
 			UserOriginTokenUses: nil,
 			MachineChain:        false,

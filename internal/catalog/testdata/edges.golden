@@ -1,5 +1,6 @@
 tolo-graph-authoring	/tolo.tenant.v1.TenantService/GetEvent	user_origin=event_access	machine_chain=false	new_machine_origin=false
 tolo-guest	/tolo.graph.v1.GraphSupplyService/GetDisplayNames	user_origin=-	machine_chain=false	new_machine_origin=true
+tolo-guest	/tolo.graph.v1.GraphSupplyService/GetGuideMapLayout	user_origin=-	machine_chain=false	new_machine_origin=true
 tolo-guest	/tolo.graph.v1.GraphSupplyService/GetQrLocations	user_origin=-	machine_chain=false	new_machine_origin=true
 tolo-guest	/tolo.observation.v1.MeasurementIngestService/ReportMeasurements	user_origin=-	machine_chain=false	new_machine_origin=true
 tolo-guest	/tolo.observation.v1.StatusQueryService/GetGuestSnapshot	user_origin=-	machine_chain=false	new_machine_origin=true
