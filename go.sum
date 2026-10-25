@@ -29,8 +29,16 @@ github.com/pj-hoakari/protoc-gen-authz-go v0.3.0 h1:oLKiB3M/JaFROsHR7NHU0+kN6IZz
 github.com/pj-hoakari/protoc-gen-authz-go v0.3.0/go.mod h1:wrZQc2mY9d2WXSt/7P3+4Fp5yesNuQPCrEWqt6UGPqI=
 github.com/pj-hoakari/tolo-graph-authoring v0.3.0-rc h1:Ai3+X3NvR+SjU/5T2A+OpyAQDbptMnM/h2n2x67Qqlc=
 github.com/pj-hoakari/tolo-graph-authoring v0.3.0-rc/go.mod h1:mMa00fPFMbCBXygLpsyzrM9rnOW1dj5vjK2E6+10SXg=
+github.com/pj-hoakari/tolo-graph-authoring v0.4.0-dev h1:gar4xXK8y3+2oj5TI1yyNJcAl2iLIJkhkOMeqGFnUbI=
+github.com/pj-hoakari/tolo-graph-authoring v0.4.0-dev/go.mod h1:4wCLyUt9EHEwXkyfLUL3ES2kPWvNIIsIpC5t3p3Y0fs=
+github.com/pj-hoakari/tolo-graph-authoring v0.4.0-rc h1:T0m+Zl7nqSenDqaGbvhzYlCfeeEvoOpp9XpWadCsALc=
+github.com/pj-hoakari/tolo-graph-authoring v0.4.0-rc/go.mod h1:4wCLyUt9EHEwXkyfLUL3ES2kPWvNIIsIpC5t3p3Y0fs=
 github.com/pj-hoakari/tolo-guest v0.0.0-20261023141643-2a3419217b4e h1:jGbMSe7Jh8B2YJSDgWT8f5H7TZKWP6kn6PWW+n1rKo0=
 github.com/pj-hoakari/tolo-guest v0.0.0-20261023141643-2a3419217b4e/go.mod h1:01stAv6bnQyexccCwyEmU0MFbx7cDaeH9pBYBDLRNiM=
+github.com/pj-hoakari/tolo-guest v0.2.0-dev h1:QSBS1npjfVmtOqq6LyLk3aA8av2I6e8CWnFsiRzJGVw=
+github.com/pj-hoakari/tolo-guest v0.2.0-dev/go.mod h1:oV7/jE2A/dFy7u2bWNRXqu3JYV0fEPin7Iia74t1llc=
+github.com/pj-hoakari/tolo-guest v0.2.0-rc h1:YXhpUgg9/moFhKO4goyYAq9nNMT4yWS6VTbKiX5QebQ=
+github.com/pj-hoakari/tolo-guest v0.2.0-rc/go.mod h1:oV7/jE2A/dFy7u2bWNRXqu3JYV0fEPin7Iia74t1llc=
 github.com/pj-hoakari/tolo-kernel-proto v0.4.0 h1:yEO6kFq3HubbZRXv9Ed2sIG7VGRm8WZ7O4tlwFROMDU=
 github.com/pj-hoakari/tolo-kernel-proto v0.4.0/go.mod h1:dH46KE1uBX0a+aL4VYDFYvdkuNPTmbFWcB6B/xjvekQ=
 github.com/pj-hoakari/tolo-observation v0.4.0-rc h1:jFoZTMEoqmXTGQ+tusZUz9LmVhxiK8BDTxDCURkVjTA=

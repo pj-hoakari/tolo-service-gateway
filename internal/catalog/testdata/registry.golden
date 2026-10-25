@@ -6,13 +6,16 @@
 /tolo.graph.v1.GraphAuthoringService/PublishRevision	destination=tolo-graph-authoring	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
 /tolo.graph.v1.GraphAuthoringService/RemoveQrLocation	destination=tolo-graph-authoring	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
 /tolo.graph.v1.GraphAuthoringService/SaveGraph	destination=tolo-graph-authoring	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
+/tolo.graph.v1.GraphAuthoringService/SaveGuideMapLayout	destination=tolo-graph-authoring	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
 /tolo.graph.v1.GraphAuthoringService/UpdateQrLocation	destination=tolo-graph-authoring	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
 /tolo.graph.v1.GraphSupplyService/GetCurrentRevision	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.graph.v1.GraphSupplyService/GetDisplayNames	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.graph.v1.GraphSupplyService/GetGatePoints	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
+/tolo.graph.v1.GraphSupplyService/GetGuideMapLayout	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.graph.v1.GraphSupplyService/GetObservationPointMappings	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.graph.v1.GraphSupplyService/GetQrLocations	destination=tolo-graph-authoring	anonymous=false	external=-	service=true	scopes=-	introspection=false
 /tolo.guest.v1.GuestPageService/GetCrowd	destination=tolo-guest	anonymous=true	external=-	service=false	scopes=-	introspection=false
+/tolo.guest.v1.GuestPageService/GetGuideMap	destination=tolo-guest	anonymous=true	external=-	service=false	scopes=-	introspection=false
 /tolo.guest.v1.GuestPageService/GetQueues	destination=tolo-guest	anonymous=true	external=-	service=false	scopes=-	introspection=false
 /tolo.guest.v1.GuestPageService/ListGuestMessages	destination=tolo-guest	anonymous=true	external=-	service=false	scopes=-	introspection=false
 /tolo.guest.v1.GuestPageService/OpenGuestPage	destination=tolo-guest	anonymous=true	external=-	service=false	scopes=-	introspection=false

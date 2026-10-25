@@ -34,6 +34,10 @@ func (f *toloGraphV1GraphAuthoringServiceForwarder) RemoveQrLocation(ctx context
 	return forward.Unary(ctx, req, f.client.RemoveQrLocation)
 }
 
+func (f *toloGraphV1GraphAuthoringServiceForwarder) SaveGuideMapLayout(ctx context.Context, req *v1.SaveGuideMapLayoutRequest) (*v1.GraphMeta, error) {
+	return forward.Unary(ctx, req, f.client.SaveGuideMapLayout)
+}
+
 func (f *toloGraphV1GraphAuthoringServiceForwarder) GetGraph(ctx context.Context, req *v1.GetGraphRequest) (*v1.GetGraphResponse, error) {
 	return forward.Unary(ctx, req, f.client.GetGraph)
 }
@@ -64,4 +68,8 @@ func (f *toloGraphV1GraphSupplyServiceForwarder) GetGatePoints(ctx context.Conte
 
 func (f *toloGraphV1GraphSupplyServiceForwarder) GetQrLocations(ctx context.Context, req *v1.GetQrLocationsRequest) (*v1.GetQrLocationsResponse, error) {
 	return forward.Unary(ctx, req, f.client.GetQrLocations)
+}
+
+func (f *toloGraphV1GraphSupplyServiceForwarder) GetGuideMapLayout(ctx context.Context, req *v1.GetGuideMapLayoutRequest) (*v1.GetGuideMapLayoutResponse, error) {
+	return forward.Unary(ctx, req, f.client.GetGuideMapLayout)
 }
