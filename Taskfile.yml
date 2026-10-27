@@ -86,6 +86,37 @@ tasks:
         cmds:
             - buf lint
 
+    proto:breaking:
+        desc: Check proto for breaking changes against the latest release tag.
+        deps:
+          - proto:write-authz
+        cmds:
+            - |
+                set -euo pipefail
+
+                SEMVER='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+                LATEST="$(git tag --list 'v*' | grep -E "$SEMVER" \
+                  | sed 's/-/~/' | sort -V | tail -n 1 | sed 's/~/-/' || true)"
+                if [ -z "$LATEST" ]; then
+                  echo "リリース済みのタグがないため比較をスキップします"
+                  exit 0
+                fi
+
+                AGAINST=.task/breaking-against
+                rm -rf "$AGAINST"
+                mkdir -p "$AGAINST"
+                cp buf.yaml "$AGAINST/"
+                cp -R proto "$AGAINST/"
+                git archive "$LATEST" proto | tar -x -C "$AGAINST"
+
+                echo "buf breaking against ${LATEST}"
+                if ! buf breaking --against "$AGAINST"; then
+                  if [ "{{.ALLOW_BREAKING}}" != "true" ]; then
+                    exit 1
+                  fi
+                  echo "ALLOW_BREAKING=true のため、互換性を壊す変更を許容します"
+                fi
+
     proto:gen:go:
         desc: Regenerate connect-go code from proto.
         deps:
