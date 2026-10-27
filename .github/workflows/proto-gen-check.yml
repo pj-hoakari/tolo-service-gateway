@@ -45,3 +45,43 @@ jobs:
               with:
                   generate-task: proto:gen:go
                   generated-path: gen/
+
+    proto-breaking:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+
+            - name: Detect changes
+              id: changes
+              uses: pj-hoakari/actions/detect-changes@92b346752a66ad19a36fbc929191603f72e00fe9 # v20261020.0.2
+              with:
+                  paths: |
+                      proto/**
+                      gen/**
+                      buf.yaml
+                      buf.gen.go.yaml
+                      go.mod
+                      go.sum
+                      mise.toml
+                      Taskfile.yml
+                      .github/workflows/proto-gen-check.yml
+
+            - name: Set up Go
+              if: steps.changes.outputs.changed == 'true'
+              uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+              with:
+                  go-version-file: go.mod
+                  cache: true
+
+            - name: Set up mise
+              if: steps.changes.outputs.changed == 'true'
+              uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+              with:
+                  install_args: buf task
+
+            - name: Check breaking changes
+              if: steps.changes.outputs.changed == 'true'
+              run: task proto:breaking
