@@ -11,7 +11,7 @@ tool (
 )
 
 require (
-	connectrpc.com/connect/v2 v2.0.1
+	connectrpc.com/connect/v2 v2.0.2
 	connectrpc.com/otelconnect v0.12.0
 	github.com/go-logr/logr v1.4.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
