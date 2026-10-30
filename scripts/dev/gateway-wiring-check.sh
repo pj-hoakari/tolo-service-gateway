@@ -30,6 +30,9 @@ expect() {
 greeting="$("${token_script}" -k tenant_access -t 0123456789abcdef -s greeting.read)"
 no_scope="$("${token_script}" -k tenant_access -t 0123456789abcdef -s tenant.read)"
 event_read="$("${token_script}" -k event_access -t 0123456789abcdef -e fedcba9876543210 -s events.read)"
+tenant_write="$("${token_script}" -k tenant_access -t 0123456789abcdef -s tenant.write)"
+tenant_join="$("${token_script}" -k registration)"
+tenant_claim="$("${token_script}" -k registration -s tenant.claim)"
 
 expect 200 'anonymous Ping reaches testbackend' greet.v1.GreetService/Ping '{}'
 expect 401 'Greet without a token' greet.v1.GreetService/Greet '{"name":"tolo"}'
@@ -41,6 +44,11 @@ expect 503 'anonymous ResolveTenantSubdomain is forwarded' tolo.tenant.v1.Tenant
 expect 503 'anonymous OpenGuestPage is forwarded' tolo.guest.v1.GuestPageService/OpenGuestPage '{"eventId":"fedcba9876543210"}'
 expect 401 'GetGuestSettings without a token' tolo.guest.v1.GuestSettingsService/GetGuestSettings '{"eventId":"fedcba9876543210"}'
 expect 401 'GetEvent without a token' tolo.tenant.v1.TenantService/GetEvent '{"eventId":"fedcba9876543210"}'
+expect 503 'ClaimTenantOwnership with registration and tenant.join is forwarded' tolo.tenant.v1.TenantService/ClaimTenantOwnership '{"tenantId":"0123456789abcdef","ownershipClaimToken":"claim-token","subdomain":"tolo","displayName":"Owner"}' "${tenant_join}"
+expect 403 'ClaimTenantOwnership with registration and tenant.claim' tolo.tenant.v1.TenantService/ClaimTenantOwnership '{"tenantId":"0123456789abcdef","ownershipClaimToken":"claim-token","subdomain":"tolo","displayName":"Owner"}' "${tenant_claim}"
+expect 503 'AcceptTenantInvitation with registration and tenant.join is forwarded' tolo.relation.v1.RelationAdminService/AcceptTenantInvitation '{"tenantId":"0123456789abcdef","invitationToken":"invitation-token"}' "${tenant_join}"
+expect 503 'CreateTenantInvitation with tenant.write passes introspection and is forwarded' tolo.relation.v1.RelationAdminService/CreateTenantInvitation '{"tenantId":"0123456789abcdef","tenantRole":"ROLE_STAFF","displayName":"Staff"}' "${tenant_write}"
+expect 403 'AddTenantMember is internal only' tolo.relation.v1.RelationAdminService/AddTenantMember '{"tenantId":"0123456789abcdef","userId":"user-456","tenantRole":"ROLE_STAFF","displayName":"Staff"}' "${tenant_write}"
 
 if [ "${failures}" -ne 0 ]; then
     printf '%d wiring check(s) failed\n' "${failures}" >&2
