@@ -142,7 +142,7 @@ curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8080/t
 IdP へ届かない・5xx が返るといった一時的な失敗は 5 秒ごとに再試行し続けるが、metadata が設定と食い違う場合や issuer が URL として使えない場合は設定の誤りとしてプロセスが終了する  
 受理する claim は Gateway の仕様（`docs/service_gateway_spec.md`）どおりで、IdP の現状に合わせた読み替えは `IDP_LEGACY_EVENTS_WRITE_SCOPE` を除いてしない  
 現時点の tolo-idp が発行するトークンは `tenant_id` の形式などが仕様に追随していないため拒否される  
-管理系書き込み 6 RPC（ArchiveTenant、ChangeTenantContract、AddTenantMember、ChangeTenantRole、GrantEventRole、RevokeRole）は、検証と認可を通ったあとに IdP へ失効照会（introspection）を行い、`active` なトークンだけを受理する  
+管理系書き込み 6 RPC（ArchiveTenant、ChangeTenantContract、CreateTenantInvitation、ChangeTenantRole、GrantEventRole、RevokeRole）は、検証と認可を通ったあとに IdP へ失効照会（introspection）を行い、`active` なトークンだけを受理する  
 照会の結果は jti 単位で 60 秒キャッシュするため、失効はその範囲で遅れて反映される  
 IdP へ照会できないときは当該 6 RPC だけを `unauthenticated`（理由 `introspection_unavailable`）で拒否し、他の RPC は通す  
 失効済みと報告されたトークンは `unauthenticated`（理由 `token_revoked`）になる  

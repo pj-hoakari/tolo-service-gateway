@@ -13,6 +13,22 @@ type toloRelationV1RelationAdminServiceForwarder struct {
 	client relationv1connect.RelationAdminServiceClient
 }
 
+func (f *toloRelationV1RelationAdminServiceForwarder) CreateTenantInvitation(ctx context.Context, req *v1.CreateTenantInvitationRequest) (*v1.CreateTenantInvitationResponse, error) {
+	return forward.Unary(ctx, req, f.client.CreateTenantInvitation)
+}
+
+func (f *toloRelationV1RelationAdminServiceForwarder) ListTenantInvitations(ctx context.Context, req *v1.ListTenantInvitationsRequest) (*v1.ListTenantInvitationsResponse, error) {
+	return forward.Unary(ctx, req, f.client.ListTenantInvitations)
+}
+
+func (f *toloRelationV1RelationAdminServiceForwarder) RevokeTenantInvitation(ctx context.Context, req *v1.RevokeTenantInvitationRequest) (*v1.RevokeTenantInvitationResponse, error) {
+	return forward.Unary(ctx, req, f.client.RevokeTenantInvitation)
+}
+
+func (f *toloRelationV1RelationAdminServiceForwarder) AcceptTenantInvitation(ctx context.Context, req *v1.AcceptTenantInvitationRequest) (*v1.AcceptTenantInvitationResponse, error) {
+	return forward.Unary(ctx, req, f.client.AcceptTenantInvitation)
+}
+
 func (f *toloRelationV1RelationAdminServiceForwarder) AddTenantMember(ctx context.Context, req *v1.AddTenantMemberRequest) (*v1.AddTenantMemberResponse, error) {
 	return forward.Unary(ctx, req, f.client.AddTenantMember)
 }

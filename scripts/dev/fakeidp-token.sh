@@ -5,7 +5,7 @@ FAKEIDP_BASE_URL="${FAKEIDP_BASE_URL:-http://localhost:8082}"
 FAKEIDP_TOKEN_USE="${FAKEIDP_TOKEN_USE:-tenant_access}"
 FAKEIDP_SUB="${FAKEIDP_SUB:-user-123}"
 FAKEIDP_CLIENT_ID="${FAKEIDP_CLIENT_ID:-client-123}"
-FAKEIDP_SCOPE="${FAKEIDP_SCOPE:-tenant.read tenant.write events.read events.manage}"
+FAKEIDP_SCOPE="${FAKEIDP_SCOPE:-}"
 FAKEIDP_TENANT_ID="${FAKEIDP_TENANT_ID:-}"
 FAKEIDP_EVENT_ID="${FAKEIDP_EVENT_ID:-}"
 FAKEIDP_TTL_SECONDS="${FAKEIDP_TTL_SECONDS:-0}"
@@ -16,7 +16,8 @@ usage: fakeidp-token.sh [-u base_url] [-k token_use] [-b sub] [-s scope] [-t ten
   -u  fakeidp base URL  (env FAKEIDP_BASE_URL,   default http://localhost:8082)
   -k  token_use         (env FAKEIDP_TOKEN_USE,  tenant_access | event_access | registration)
   -b  subject           (env FAKEIDP_SUB,        default user-123)
-  -s  space separated scopes (env FAKEIDP_SCOPE)
+  -s  space separated scopes (env FAKEIDP_SCOPE,    default tenant.join for registration,
+                                                     tenant.read tenant.write events.read events.manage otherwise)
   -t  tenant id         (env FAKEIDP_TENANT_ID,  16 lowercase hex; omit for registration)
   -e  event id          (env FAKEIDP_EVENT_ID)
   -c  client id         (env FAKEIDP_CLIENT_ID,  default client-123)
@@ -38,6 +39,14 @@ while getopts ':u:k:b:s:t:e:c:l:h' opt; do
         *) usage ;;
     esac
 done
+
+if [ -z "${FAKEIDP_SCOPE}" ]; then
+    if [ "${FAKEIDP_TOKEN_USE}" = registration ]; then
+        FAKEIDP_SCOPE="tenant.join"
+    else
+        FAKEIDP_SCOPE="tenant.read tenant.write events.read events.manage"
+    fi
+fi
 
 for cmd in curl jq; do
     command -v "${cmd}" >/dev/null 2>&1 || { printf '%s is required\n' "${cmd}" >&2; exit 1; }
