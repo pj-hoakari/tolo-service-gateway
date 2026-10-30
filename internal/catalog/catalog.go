@@ -119,7 +119,7 @@ func Overrides() registry.Overrides {
 		Introspection: []string{
 			tenantv1connect.TenantServiceArchiveTenantProcedure,
 			tenantv1connect.TenantServiceChangeTenantContractProcedure,
-			relationv1connect.RelationAdminServiceAddTenantMemberProcedure,
+			relationv1connect.RelationAdminServiceCreateTenantInvitationProcedure,
 			relationv1connect.RelationAdminServiceChangeTenantRoleProcedure,
 			relationv1connect.RelationAdminServiceGrantEventRoleProcedure,
 			relationv1connect.RelationAdminServiceRevokeRoleProcedure,
