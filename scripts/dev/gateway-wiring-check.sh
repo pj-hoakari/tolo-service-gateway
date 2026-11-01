@@ -27,6 +27,20 @@ expect() {
     fi
 }
 
+expect_grpc() {
+    local label="$1" procedure="$2"
+
+    local headers
+    headers="$(printf '\0\0\0\0\0' | curl -s -o /dev/null -D - --http2-prior-knowledge -X POST \
+        -H 'Content-Type: application/grpc' -H 'TE: trailers' --data-binary @- "${GATEWAY_BASE_URL}/${procedure}" | tr -d '\r' || true)"
+    if printf '%s\n' "${headers}" | grep -qx 'grpc-status: 0'; then
+        printf 'ok: %s -> grpc-status 0\n' "${label}"
+    else
+        printf 'NG: %s -> %s (want grpc-status 0)\n' "${label}" "$(printf '%s\n' "${headers}" | grep -E '^(HTTP|grpc-status)' | tr '\n' ' ')" >&2
+        failures=$((failures + 1))
+    fi
+}
+
 greeting="$("${token_script}" -k tenant_access -t 0123456789abcdef -s greeting.read)"
 no_scope="$("${token_script}" -k tenant_access -t 0123456789abcdef -s tenant.read)"
 event_read="$("${token_script}" -k event_access -t 0123456789abcdef -e fedcba9876543210 -s events.read)"
@@ -35,6 +49,7 @@ tenant_join="$("${token_script}" -k registration)"
 tenant_claim="$("${token_script}" -k registration -s tenant.claim)"
 
 expect 200 'anonymous Ping reaches testbackend' greet.v1.GreetService/Ping '{}'
+expect_grpc 'anonymous Ping over gRPC with h2c prior knowledge reaches testbackend' greet.v1.GreetService/Ping
 expect 401 'Greet without a token' greet.v1.GreetService/Greet '{"name":"tolo"}'
 expect 200 'Greet with greeting.read reaches testbackend' greet.v1.GreetService/Greet '{"name":"tolo"}' "${greeting}"
 expect 403 'Greet without greeting.read' greet.v1.GreetService/Greet '{"name":"tolo"}' "${no_scope}"

@@ -32,11 +32,12 @@ task up
 鍵を作り直すには `docker compose down -v` でボリュームごと削除してから起動し直す
 
 `server` は `TOLO_GATEWAY_LISTENER_MODE=split` で、公開用（8080）と内部用（8090）の 2 つの listener を起動する（停止は `task down`）  
+どちらの listener も HTTP/1.1 と h2c（TLS なしの HTTP/2）を受け、gRPC のクライアントは prior knowledge の h2c で接続できる  
 ホストへ公開するのは公開用の `http://localhost:8080` だけで、内部用の 8090 はホストへ公開せず、`server` とネットワークを共有するサービスから `http://server:8090` でだけ届く  
 `server` と後段のサービスは後段ごとに分けたネットワークで 1 対 1 につながり、後段どうしや DB から `server` へは届かない  
 後段と DB のネットワークは `internal: true` で、ホストへの公開と外部への通信を持たない  
 この到達範囲は `scripts/dev/compose-reachability-check.sh` で確かめられ、e2e workflow でも実行する  
-転送の配線（匿名の `Ping`、外部トークンの有無と scope による `Greet` の可否、後段が無い宛先の `unavailable`）は `scripts/dev/gateway-wiring-check.sh` で確かめる。`task e2e` はこの 2 つを順に実行する  
+転送の配線（匿名の `Ping`、h2c の gRPC での匿名の `Ping`、外部トークンの有無と scope による `Greet` の可否、後段が無い宛先の `unavailable`）は `scripts/dev/gateway-wiring-check.sh` で確かめる。`task e2e` はこの 2 つを順に実行する  
 公開用の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）・公開 JWKS と、匿名で呼べる業務 RPC になる  
 `/healthz` はプロセスが応答できる限り 200 を返す  
 `/readyz` は登録された準備チェックがすべて成功したときだけ 200 を返し、1 つでも失敗すれば 503 を返す（失敗の内容は応答本文には出さず、サーバー側のログにだけ記録する）  
