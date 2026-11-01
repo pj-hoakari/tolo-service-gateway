@@ -23,6 +23,7 @@
 /tolo.guest.v1.GuestSettingsService/ListIssuedUrls	destination=tolo-guest	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
 /tolo.guest.v1.GuestSettingsService/UpdateGuestSettings	destination=tolo-guest	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
 /tolo.observation.v1.EdgeDeviceService/Heartbeat	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.report	introspection=false
+/tolo.observation.v1.EdgeDeviceService/ListEdgeDeviceObservationPoints	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.report	introspection=false
 /tolo.observation.v1.EdgeDeviceService/ListEdgeDevices	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.read	introspection=false
 /tolo.observation.v1.EdgeDeviceService/RegisterEdgeDevice	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
 /tolo.observation.v1.EdgeDeviceService/UnregisterEdgeDevice	destination=tolo-observation	anonymous=false	external=event_access	service=false	scopes=events.manage	introspection=false
