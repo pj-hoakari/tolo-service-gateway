@@ -33,6 +33,10 @@ func (f *toloObservationV1EdgeDeviceServiceForwarder) ListEdgeDevices(ctx contex
 	return forward.Unary(ctx, req, f.client.ListEdgeDevices)
 }
 
+func (f *toloObservationV1EdgeDeviceServiceForwarder) ListEdgeDeviceObservationPoints(ctx context.Context, req *v1.ListEdgeDeviceObservationPointsRequest) (*v1.ListEdgeDeviceObservationPointsResponse, error) {
+	return forward.Unary(ctx, req, f.client.ListEdgeDeviceObservationPoints)
+}
+
 func (f *toloObservationV1EdgeDeviceServiceForwarder) Heartbeat(ctx context.Context, req *v1.HeartbeatRequest) (*v1.HeartbeatResponse, error) {
 	return forward.Unary(ctx, req, f.client.Heartbeat)
 }

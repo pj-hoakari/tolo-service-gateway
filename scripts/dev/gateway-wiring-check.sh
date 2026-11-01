@@ -44,6 +44,7 @@ expect_grpc() {
 greeting="$("${token_script}" -k tenant_access -t 0123456789abcdef -s greeting.read)"
 no_scope="$("${token_script}" -k tenant_access -t 0123456789abcdef -s tenant.read)"
 event_read="$("${token_script}" -k event_access -t 0123456789abcdef -e fedcba9876543210 -s events.read)"
+event_report="$("${token_script}" -k event_access -t 0123456789abcdef -e fedcba9876543210 -s events.report)"
 tenant_write="$("${token_script}" -k tenant_access -t 0123456789abcdef -s tenant.write)"
 tenant_join="$("${token_script}" -k registration)"
 tenant_claim="$("${token_script}" -k registration -s tenant.claim)"
@@ -54,6 +55,8 @@ expect 401 'Greet without a token' greet.v1.GreetService/Greet '{"name":"tolo"}'
 expect 200 'Greet with greeting.read reaches testbackend' greet.v1.GreetService/Greet '{"name":"tolo"}' "${greeting}"
 expect 403 'Greet without greeting.read' greet.v1.GreetService/Greet '{"name":"tolo"}' "${no_scope}"
 expect 503 'GetGraph to an absent destination' tolo.graph.v1.GraphAuthoringService/GetGraph '{"eventId":"fedcba9876543210"}' "${event_read}"
+expect 503 'ListEdgeDeviceObservationPoints with event_access and events.report is forwarded' tolo.observation.v1.EdgeDeviceService/ListEdgeDeviceObservationPoints '{"eventId":"fedcba9876543210","edgeDeviceId":"edge-1"}' "${event_report}"
+expect 403 'ListEdgeDeviceObservationPoints without events.report' tolo.observation.v1.EdgeDeviceService/ListEdgeDeviceObservationPoints '{"eventId":"fedcba9876543210","edgeDeviceId":"edge-1"}' "${event_read}"
 expect 503 'anonymous StartTenantRegistration is forwarded' tolo.tenant.v1.TenantService/StartTenantRegistration '{"name":"tolo","contractPlan":"standard"}'
 expect 503 'anonymous ResolveTenantSubdomain is forwarded' tolo.tenant.v1.TenantService/ResolveTenantSubdomain '{"subdomain":"test"}'
 expect 503 'anonymous OpenGuestPage is forwarded' tolo.guest.v1.GuestPageService/OpenGuestPage '{"eventId":"fedcba9876543210"}'
