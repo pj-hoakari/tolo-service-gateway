@@ -35,9 +35,8 @@ import (
 )
 
 const (
-	defaultLogLevel   = "info"
-	shutdownTimeout   = 10 * time.Second
-	readHeaderTimeout = 10 * time.Second
+	defaultLogLevel = "info"
+	shutdownTimeout = 10 * time.Second
 )
 
 const (
@@ -184,15 +183,7 @@ func run() error {
 		rpcConfig.Inbound = listener.Inbound
 		routes = append(routes, infraconnect.Routes(rpcConfig))
 
-		server := &http.Server{
-			Addr:              listener.Addr,
-			Handler:           httpapi.NewHandler(routes...),
-			ReadHeaderTimeout: readHeaderTimeout,
-			// net/http reports its own failures (a broken connection, a panic in a
-			// handler) through this logger, so it goes to the same structured
-			// stream as everything else.
-			ErrorLog: slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
-		}
+		server := httpapi.NewServer(listener.Addr, httpapi.NewHandler(routes...))
 		servers = append(servers, server)
 
 		go func() {
