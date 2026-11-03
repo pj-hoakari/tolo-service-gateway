@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/externaltoken"
 	"github.com/pj-hoakari/tolo-service-gateway/internal/fakeidp"
 )
@@ -183,6 +184,73 @@ func TestHandlerServesAJWKSWithOneSigningKey(t *testing.T) {
 	if got, ok := key["kid"].(string); !ok || got == "" {
 		t.Errorf("keys[0].kid = %#v, want a non-empty string", key["kid"])
 	}
+}
+
+func TestHandlerPassesAdditionalClaimsThroughAndAcceptsEventsStream(t *testing.T) {
+	t.Parallel()
+
+	issuer := startFakeIDP(t)
+
+	token := issueToken(t, issuer, map[string]any{
+		"token_use":      "event_access",
+		"sub":            "user-camera",
+		"client_id":      "esp-camera",
+		"scope":          "events.stream",
+		"tenant_id":      testTenantID,
+		"event_id":       "fedcba9876543210",
+		"edge_device_id": "0011223344556677",
+		"nested":         map[string]any{"enabled": true},
+		"roles":          []any{"edge", "camera"},
+		"iss":            "https://attacker.example",
+		"exp":            1,
+	})
+
+	verifyToken(t, issuer, token)
+
+	claims := decodeUnverifiedClaims(t, token)
+
+	for name, want := range map[string]any{
+		"client_id":      "esp-camera",
+		"scope":          "events.stream",
+		"tenant_id":      testTenantID,
+		"event_id":       "fedcba9876543210",
+		"edge_device_id": "0011223344556677",
+		"iss":            issuer,
+	} {
+		if got := claims[name]; got != want {
+			t.Errorf("%s = %#v, want %#v", name, got, want)
+		}
+	}
+
+	nested, ok := claims["nested"].(map[string]any)
+	if !ok || nested["enabled"] != true {
+		t.Errorf("nested = %#v, want the request's object claim", claims["nested"])
+	}
+
+	roles, ok := claims["roles"].([]any)
+	if !ok || len(roles) != 2 || roles[0] != "edge" || roles[1] != "camera" {
+		t.Errorf("roles = %#v, want the request's array claim", claims["roles"])
+	}
+
+	if got := claims["exp"]; got == float64(1) {
+		t.Error("exp = 1, want the fake IdP to keep its own expiry")
+	}
+
+	if _, present := claims["ttl_seconds"]; present {
+		t.Error("ttl_seconds is a token claim, want request metadata only")
+	}
+}
+
+func decodeUnverifiedClaims(t *testing.T, token string) jwt.MapClaims {
+	t.Helper()
+
+	claims := jwt.MapClaims{}
+
+	if _, _, err := jwt.NewParser().ParseUnverified(token, claims); err != nil {
+		t.Fatalf("ParseUnverified() error = %v, want nil", err)
+	}
+
+	return claims
 }
 
 func TestHandlerIssuesTokensTheVerifierAccepts(t *testing.T) {

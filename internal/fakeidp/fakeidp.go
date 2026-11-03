@@ -49,13 +49,29 @@ type Config struct {
 }
 
 type tokenRequest struct {
-	TokenUse   string `json:"token_use"`
-	Subject    string `json:"sub"`
-	ClientID   string `json:"client_id"`
-	Scope      string `json:"scope"`
-	TenantID   string `json:"tenant_id"`
-	EventID    string `json:"event_id"`
-	TTLSeconds int    `json:"ttl_seconds"`
+	TokenUse    string
+	Subject     string
+	ClientID    string
+	Scope       string
+	TenantID    string
+	EventID     string
+	TTLSeconds  int
+	ExtraClaims map[string]any
+}
+
+var reservedTokenClaims = map[string]struct{}{
+	"iss":       {},
+	"aud":       {},
+	"jti":       {},
+	"iat":       {},
+	"nbf":       {},
+	"exp":       {},
+	"token_use": {},
+	"sub":       {},
+	"client_id": {},
+	"scope":     {},
+	"tenant_id": {},
+	"event_id":  {},
 }
 
 type revokeRequest struct {
@@ -151,12 +167,18 @@ func (p *provider) handleJWKS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *provider) handleToken(w http.ResponseWriter, r *http.Request) {
-	var request tokenRequest
+	var body map[string]json.RawMessage
 
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestSize))
-	decoder.DisallowUnknownFields()
 
-	if err := decoder.Decode(&request); err != nil {
+	if err := decoder.Decode(&body); err != nil {
+		http.Error(w, "the request body is not a token request", http.StatusBadRequest)
+
+		return
+	}
+
+	request, err := tokenRequestFrom(body)
+	if err != nil {
 		http.Error(w, "the request body is not a token request", http.StatusBadRequest)
 
 		return
@@ -171,6 +193,60 @@ func (p *provider) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, r, map[string]any{"access_token": signed, "token_type": "Bearer"})
+}
+
+func tokenRequestFrom(body map[string]json.RawMessage) (tokenRequest, error) {
+	request := tokenRequest{ExtraClaims: make(map[string]any, len(body))}
+
+	for name, value := range body {
+		var target any
+
+		switch name {
+		case "token_use":
+			target = &request.TokenUse
+		case "sub":
+			target = &request.Subject
+		case "client_id":
+			target = &request.ClientID
+		case "scope":
+			target = &request.Scope
+		case "tenant_id":
+			target = &request.TenantID
+		case "event_id":
+			target = &request.EventID
+		case "ttl_seconds":
+			target = &request.TTLSeconds
+		default:
+			if _, reserved := reservedTokenClaims[name]; reserved {
+				continue
+			}
+
+			claim, err := decodeClaim(value)
+			if err != nil {
+				return tokenRequest{}, err
+			}
+
+			request.ExtraClaims[name] = claim
+
+			continue
+		}
+
+		if err := json.Unmarshal(value, target); err != nil {
+			return tokenRequest{}, err
+		}
+	}
+
+	return request, nil
+}
+
+func decodeClaim(value json.RawMessage) (any, error) {
+	var claim any
+
+	if err := json.Unmarshal(value, &claim); err != nil {
+		return nil, err
+	}
+
+	return claim, nil
 }
 
 func (p *provider) sign(request tokenRequest) (string, error) {
@@ -205,6 +281,10 @@ func (p *provider) sign(request tokenRequest) (string, error) {
 
 	if request.EventID != "" {
 		claims["event_id"] = request.EventID
+	}
+
+	for name, value := range request.ExtraClaims {
+		claims[name] = value
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
