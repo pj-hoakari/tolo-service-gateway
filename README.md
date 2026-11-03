@@ -35,15 +35,24 @@ task up
 
 カメラ対応の Observation proto（`kind`・`camera_links`・`linked_observation_point_id`）を Gateway が落とさず転送できるよう、このリポジトリの `go.work` は隣に clone した `../tolo-observation` を使う
 `go build ./...` と `go test ./...` は、そのままローカルの Observation を参照する
-Docker イメージも、`compose.yml` が `../tolo-observation` を `observation` という追加ビルドコンテキストで渡し、通常の `Dockerfile` がそれを使う
+
+`server` の Docker イメージも同じモジュールを使う。ビルドには `observation` という名前の追加ビルドコンテキストが必須で、`compose.yml` は `${TOLO_OBSERVATION_CONTEXT:-../tolo-observation}` を渡す
+直接ビルドするときは次のように指定する
+
+```bash
+docker build --target server --build-context observation=../tolo-observation -t tolo-service-gateway:dev .
+```
+
 隣にリポジトリが無い場合は、`TOLO_OBSERVATION_CONTEXT` に `https://github.com/pj-hoakari/tolo-observation.git#<commit>` のようなビルドコンテキストを指定する
-追加コンテキストを渡さないビルドは、`Dockerfile` の `OBSERVATION_VERSION`（既定 `v0.6.0-rc`）の公開版へフォールバックする。この版にカメラ項目はまだ無いため、カメラを含むイメージを公開するときは Observation を先にリリースする
+`observation` コンテキストを渡さないビルドは、公開版へフォールバックせずに失敗する（BuildKit は `observation` をイメージ名として解決しようとして `pull access denied` を返す）
+`Dockerfile` はコンテキストにカメラ proto が含まれることも確かめるため、カメラ対応より前の Observation を指していても失敗する
+カメラ対応の Observation がリリースされるまでは、この状態のままにする
 
 Observation をリリースしたら、次の順で公開版へ切り替える
 
 1. `go get github.com/pj-hoakari/tolo-observation@vX.Y.Z` で `go.mod` と `go.sum` を更新する
 2. `go.work` と `go.work.sum` を削除し、`.gitignore` で `go.work` を無視する設定を元に戻す
-3. `Dockerfile` の `observation-download`・`observation` ステージ、`COPY --from=observation`、`COPY go.work*` を削除し、`compose.yml` の `additional_contexts` も削除する
+3. `Dockerfile` の `observation-source` ステージ、`COPY --from=observation-source`、`COPY go.work*` を削除し、`compose.yml` の `additional_contexts` も削除する
 4. `tolo` リポジトリの `compose.camera.yml` から `additional_contexts` を外し、`compose.yml` の `tolo-service-gateway` の固定コミットを新しい Gateway のリリースへ更新する
 5. CI の `tolo-observation` の clone 手順と `go.work` の変更検知を削除する
 
