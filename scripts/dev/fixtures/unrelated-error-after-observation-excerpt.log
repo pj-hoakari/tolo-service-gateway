@@ -1,0 +1,22 @@
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 3.39kB done
+#1 DONE 0.0s
+
+#2 [observation-source 1/1] COPY --from=observation / /tolo-observation
+#2 DONE 0.0s
+
+#3 [builder 5/6] RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build,id=go-build-arm64 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o /out/server ./cmd/server
+#3 0.431 ./cmd/server/main.go:12:2: undefined: missingHandler
+#3 ERROR: process "/bin/sh -c CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/server ./cmd/server" did not complete successfully: exit code: 1
+------
+ > [builder 5/6] RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build,id=go-build-arm64 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o /out/server ./cmd/server:
+0.431 ./cmd/server/main.go:12:2: undefined: missingHandler
+------
+Dockerfile:32
+--------------------
+  30 |     # Without it BuildKit tries to pull an "observation" image and reports "pull access denied".
+  31 |     # docker build --target server --build-context observation=../tolo-observation -t <image> .
+  32 | >>> COPY --from=observation / /tolo-observation
+  33 |
+--------------------
+ERROR: failed to build: failed to solve: process "/bin/sh -c CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/server ./cmd/server" did not complete successfully: exit code: 1

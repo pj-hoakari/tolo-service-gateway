@@ -11,9 +11,19 @@ observation_context="${TOLO_OBSERVATION_CONTEXT:-../tolo-observation}"
 is_missing_observation_context_failure() {
     local log_file="$1"
     local terminal_error
+    local final_error
 
     terminal_error="$(
         awk '
+            function is_ignored(line) {
+                return line ~ /^[[:space:]]*$/ \
+                    || line ~ /^-+$/ \
+                    || line ~ /^Dockerfile:[0-9]+$/ \
+                    || line ~ /^#[0-9]+ / \
+                    || line ~ /^[[:space:]]*>>> / \
+                    || line ~ /^[[:space:]]*[0-9]+ \|/ \
+                    || line ~ /^[[:space:]]*#/
+            }
             /^#[0-9]+ .*ERROR:/ { block = NR }
             /^ERROR: (failed to build|failed to solve):/ { final = NR }
             { line[NR] = $0 }
@@ -23,15 +33,29 @@ is_missing_observation_context_failure() {
                 }
                 start = (block > 0 ? block : final)
                 for (i = start; i <= final; i++) {
-                    print line[i]
+                    if (!is_ignored(line[i])) {
+                        print line[i]
+                    }
                 }
             }
         ' "${log_file}"
     )" || return 1
 
-    printf '%s\n' "${terminal_error}" | grep -q 'failed to solve' || return 1
-    printf '%s\n' "${terminal_error}" \
-        | grep -Eq 'docker[.]io/library/observation|library/observation|COPY --from=observation|build context.*observation|observation.*build context' \
+    final_error="$(
+        printf '%s\n' "${terminal_error}" \
+            | grep -E '^ERROR: (failed to build|failed to solve):' \
+            | tail -n 1
+    )"
+    [ -n "${final_error}" ] || return 1
+    printf '%s\n' "${final_error}" | grep -q 'failed to solve' || return 1
+
+    if printf '%s\n' "${terminal_error}" | grep -q 'observation' \
+        && printf '%s\n' "${terminal_error}" | grep -Eqi 'pull access denied|access denied'; then
+        return 0
+    fi
+
+    printf '%s\n' "${final_error}" | grep -Eqi \
+        'failed to solve:.*(observation|build context).*(pull access denied|access denied|missing|not found|not provided|does not exist|no such|required)|failed to solve:.*(pull access denied|access denied|missing|not found|not provided|does not exist|no such|required).*(observation|build context)|failed to solve:.*missing build context' \
         || return 1
 }
 
@@ -50,6 +74,13 @@ run_matcher_self_test() {
         failed=1
     else
         printf 'ok: self-test rejects an unrelated final error after COPY --from=observation\n'
+    fi
+
+    if is_missing_observation_context_failure "${fixture_dir}/unrelated-error-after-observation-excerpt.log"; then
+        printf 'ERROR: self-test accepted an unrelated final error after an observation Dockerfile excerpt\n' >&2
+        failed=1
+    else
+        printf 'ok: self-test rejects an unrelated final error after an observation Dockerfile excerpt\n'
     fi
 
     if [ "${failed}" -ne 0 ]; then
