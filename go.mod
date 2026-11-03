@@ -20,7 +20,7 @@ require (
 	github.com/pj-hoakari/tolo-graph-authoring v0.4.0-rc
 	github.com/pj-hoakari/tolo-guest v0.2.1-rc
 	github.com/pj-hoakari/tolo-kernel-proto v0.4.0
-	github.com/pj-hoakari/tolo-observation v0.6.0-rc
+	github.com/pj-hoakari/tolo-observation v0.7.0-rc
 	github.com/pj-hoakari/tolo-operation v0.2.0-dev
 	github.com/pj-hoakari/tolo-realtime v0.1.0-dev
 	github.com/pj-hoakari/tolo-tenant-management v0.6.0-dev
