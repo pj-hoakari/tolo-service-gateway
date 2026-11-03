@@ -40,6 +40,10 @@ jobs:
                   TOLO_OBSERVATION_REF: ${{ vars.TOLO_OBSERVATION_REF || 'main' }}
               run: git clone --depth 1 --branch "${TOLO_OBSERVATION_REF}" https://github.com/pj-hoakari/tolo-observation.git ../tolo-observation
 
+            - name: Verify the observation build context is required
+              if: steps.changes.outputs.changed == 'true'
+              run: ./scripts/dev/check-docker-observation-context.sh
+
             - name: Start services
               id: up
               if: steps.changes.outputs.changed == 'true'

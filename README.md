@@ -48,6 +48,12 @@ docker build --target server --build-context observation=../tolo-observation -t 
 `Dockerfile` はコンテキストにカメラ proto が含まれることも確かめるため、カメラ対応より前の Observation を指していても失敗する
 カメラ対応の Observation がリリースされるまでは、この状態のままにする
 
+コンテキスト無しでは意図した理由で失敗し、指定すれば成功することを次のスクリプトで確認できる（e2e workflow でも実行する。Docker が無い開発環境ではスキップし、CI ではスキップしない）
+
+```bash
+./scripts/dev/check-docker-observation-context.sh
+```
+
 Observation をリリースしたら、次の順で公開版へ切り替える
 
 1. `go get github.com/pj-hoakari/tolo-observation@vX.Y.Z` で `go.mod` と `go.sum` を更新する
