@@ -23,9 +23,7 @@ profile.cov
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-# Go workspace file
-go.work
-go.work.sum
+# go.work is checked in while the Gateway builds against the sibling tolo-observation module.
 
 # env file
 .env

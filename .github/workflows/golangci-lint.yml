@@ -26,8 +26,16 @@ jobs:
                       .golangci.yml
                       go.mod
                       go.sum
+                      go.work
+                      go.work.sum
                       mise.toml
                       .github/workflows/golangci-lint.yml
+
+            - name: Checkout tolo-observation
+              if: steps.changes.outputs.changed == 'true'
+              env:
+                  TOLO_OBSERVATION_REF: ${{ vars.TOLO_OBSERVATION_REF || 'main' }}
+              run: git clone --depth 1 --branch "${TOLO_OBSERVATION_REF}" https://github.com/pj-hoakari/tolo-observation.git ../tolo-observation
 
             - name: Set up Go
               if: steps.changes.outputs.changed == 'true'

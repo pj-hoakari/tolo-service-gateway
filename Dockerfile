@@ -1,8 +1,29 @@
 # syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS observation-download
+
+ARG OBSERVATION_VERSION=v0.6.0-rc
+
+WORKDIR /tmp
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    dir="$(go mod download -json "github.com/pj-hoakari/tolo-observation@${OBSERVATION_VERSION}" \
+        | sed -n 's/^[[:space:]]*"Dir": "\(.*\)",$/\1/p')" \
+    && test -n "${dir}" \
+    && mkdir -p /obs \
+    && cp -a "${dir}/." /obs/
+
+
+FROM scratch AS observation
+
+COPY --from=observation-download /obs /
+
+
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS builder
 
 WORKDIR /src
 
+COPY go.work* ./
+COPY --from=observation / /tolo-observation
 COPY go.mod go.sum* ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download

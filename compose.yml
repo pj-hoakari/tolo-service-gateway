@@ -24,6 +24,8 @@ services:
         build:
             context: .
             target: server
+            additional_contexts:
+                observation: ${TOLO_OBSERVATION_CONTEXT:-../tolo-observation}
         environment:
             TOLO_GATEWAY_LISTENER_MODE: split
             TOLO_GATEWAY_PUBLIC_PORT: "8080"
