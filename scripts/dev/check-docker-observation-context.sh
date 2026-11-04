@@ -102,12 +102,25 @@ skip_or_fail() {
 command -v docker >/dev/null 2>&1 || skip_or_fail "docker is not installed"
 docker info >/dev/null 2>&1 || skip_or_fail "the Docker daemon is not reachable"
 
+pinned_ref="$(cat "${repo_root}/tolo-observation.ref")"
+[ -n "${pinned_ref}" ] || { printf 'ERROR: tolo-observation.ref is empty\n' >&2; exit 1; }
+
 case "${observation_context}" in
-    *://*|git@*) ;;
+    *://*|git@*)
+        case "${observation_context}" in
+            *#"${pinned_ref}") ;;
+            *) printf 'ERROR: observation context must pin %s, got %s\n' "${pinned_ref}" "${observation_context}" >&2; exit 1 ;;
+        esac
+        ;;
     *)
         if [ ! -d "${observation_context}" ]; then
             printf "ERROR: observation build context not found: %s\n" "${observation_context}" >&2
             printf 'clone tolo-observation next to this repository or set TOLO_OBSERVATION_CONTEXT\n' >&2
+            exit 1
+        fi
+        actual_ref="$(git -C "${observation_context}" rev-parse HEAD 2>/dev/null || true)"
+        if [ "${actual_ref}" != "${pinned_ref}" ]; then
+            printf 'ERROR: observation context is %s, want %s from tolo-observation.ref\n' "${actual_ref:-not-a-git-checkout}" "${pinned_ref}" >&2
             exit 1
         fi
         ;;

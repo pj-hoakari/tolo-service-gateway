@@ -34,7 +34,7 @@ task up
 ### tolo-observation のローカルモジュール
 
 カメラ対応の Observation proto（`kind`・`camera_links`・`linked_observation_point_id`）を Gateway が落とさず転送できるよう、このリポジトリの `go.work` は隣に clone した `../tolo-observation` を使う
-`go build ./...` と `go test ./...` は、そのままローカルの Observation を参照する
+`go build ./...` と `go test ./...` は、そのままローカルの Observation を参照する。CI は `tolo-observation.ref` の完全なコミット SHA を fetch し、detached checkout する。`TOLO_OBSERVATION_REF` を設定した場合だけ上書きできる
 
 `server` の Docker イメージも同じモジュールを使う。ビルドには `observation` という名前の追加ビルドコンテキストが必須で、`compose.yml` は `${TOLO_OBSERVATION_CONTEXT:-../tolo-observation}` を渡す
 直接ビルドするときは次のように指定する
@@ -48,7 +48,7 @@ docker build --target server --build-context observation=../tolo-observation -t 
 `Dockerfile` はコンテキストにカメラ proto が含まれることも確かめるため、カメラ対応より前の Observation を指していても失敗する
 カメラ対応の Observation がリリースされるまでは、この状態のままにする
 
-コンテキスト無しでは意図した理由で失敗し、指定すれば成功することを次のスクリプトで確認できる（e2e workflow でも実行する。Docker が無い開発環境ではスキップし、CI ではスキップしない）
+コンテキスト無しでは意図した理由で失敗し、指定すれば成功することを次のスクリプトで確認できる（e2e workflow でも実行する。Docker が無い開発環境ではスキップし、CI ではスキップしない）。スクリプトはローカルコンテキストの HEAD が `tolo-observation.ref` と一致することも確認する
 
 ```bash
 ./scripts/dev/check-docker-observation-context.sh
