@@ -196,7 +196,16 @@ func (p *provider) handleToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func tokenRequestFrom(body map[string]json.RawMessage) (tokenRequest, error) {
-	request := tokenRequest{ExtraClaims: make(map[string]any, len(body))}
+	request := tokenRequest{
+		TokenUse:    "",
+		Subject:     "",
+		ClientID:    "",
+		Scope:       "",
+		TenantID:    "",
+		EventID:     "",
+		TTLSeconds:  0,
+		ExtraClaims: make(map[string]any, len(body)),
+	}
 
 	for name, value := range body {
 		var target any
