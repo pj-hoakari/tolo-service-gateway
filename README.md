@@ -26,80 +26,49 @@ task up
 
 この構成は `keygen`・`server`・`testbackend`・`fakeidp` の 4 つのサービスからなる
 
-`keygen` は開発用の署名鍵を名前付きボリューム `internal-jwt-keys` へ 1 度だけ生成する init サービスで、`server` はその鍵を読み込み専用でマウントして使う
-鍵はコンテナの外に出ず、リポジトリにもイメージにも含まれない
-鍵がすでにボリュームにあれば `keygen` は何もしないため、起動を繰り返しても鍵は変わらない
+`keygen` は開発用の署名鍵を名前付きボリューム `internal-jwt-keys` へ 1 度だけ生成する init サービスで、`server` はその鍵を読み込み専用でマウントして使う  
+鍵はコンテナの外に出ず、リポジトリにもイメージにも含まれない  
+鍵がすでにボリュームにあれば `keygen` は何もしないため、起動を繰り返しても鍵は変わらない  
 鍵を作り直すには `docker compose down -v` でボリュームごと削除してから起動し直す
 
-### tolo-observation のローカルモジュール
-
-カメラ対応の Observation proto（`kind`・`camera_links`・`linked_observation_point_id`）を Gateway が落とさず転送できるよう、このリポジトリの `go.work` は隣に clone した `../tolo-observation` を使う
-`go build ./...` と `go test ./...` は、そのままローカルの Observation を参照する。CI は `tolo-observation.ref` の完全なコミット SHA を fetch し、detached checkout する。`TOLO_OBSERVATION_REF` を設定した場合だけ上書きできる
-
-`server` の Docker イメージも同じモジュールを使う。ビルドには `observation` という名前の追加ビルドコンテキストが必須で、`compose.yml` は `${TOLO_OBSERVATION_CONTEXT:-../tolo-observation}` を渡す
-直接ビルドするときは次のように指定する
-
-```bash
-docker build --target server --build-context observation=../tolo-observation -t tolo-service-gateway:dev .
-```
-
-隣にリポジトリが無い場合は、`TOLO_OBSERVATION_CONTEXT` に `https://github.com/pj-hoakari/tolo-observation.git#<commit>` のようなビルドコンテキストを指定する
-`observation` コンテキストを渡さないビルドは、公開版へフォールバックせずに失敗する（BuildKit は `observation` をイメージ名として解決しようとして `pull access denied` を返す）
-`Dockerfile` はコンテキストにカメラ proto が含まれることも確かめるため、カメラ対応より前の Observation を指していても失敗する
-カメラ対応の Observation がリリースされるまでは、この状態のままにする
-
-コンテキスト無しでは意図した理由で失敗し、指定すれば成功することを次のスクリプトで確認できる（e2e workflow でも実行する。Docker が無い開発環境ではスキップし、CI ではスキップしない）。スクリプトはローカルコンテキストの HEAD が `tolo-observation.ref` と一致することも確認する
-
-```bash
-./scripts/dev/check-docker-observation-context.sh
-```
-
-Observation をリリースしたら、次の順で公開版へ切り替える
-
-1. `go get github.com/pj-hoakari/tolo-observation@vX.Y.Z` で `go.mod` と `go.sum` を更新する
-2. `go.work` と `go.work.sum` を削除し、`.gitignore` で `go.work` を無視する設定を元に戻す
-3. `Dockerfile` の `observation-source` ステージ、`COPY --from=observation-source`、`COPY go.work*` を削除し、`compose.yml` の `additional_contexts` も削除する
-4. `tolo` リポジトリの `compose.camera.yml` から `additional_contexts` を外し、`compose.yml` の `tolo-service-gateway` の固定コミットを新しい Gateway のリリースへ更新する
-5. CI の `tolo-observation` の clone 手順と `go.work` の変更検知を削除する
-
-`server` は `TOLO_GATEWAY_LISTENER_MODE=split` で、公開用（8080）と内部用（8090）の 2 つの listener を起動する（停止は `task down`）
-どちらの listener も HTTP/1.1 と h2c（TLS なしの HTTP/2）を受け、gRPC のクライアントは prior knowledge の h2c で接続できる
-ホストへ公開するのは公開用の `http://localhost:8080` だけで、内部用の 8090 はホストへ公開せず、`server` とネットワークを共有するサービスから `http://server:8090` でだけ届く
-`server` と後段のサービスは後段ごとに分けたネットワークで 1 対 1 につながり、後段どうしや DB から `server` へは届かない
-後段と DB のネットワークは `internal: true` で、ホストへの公開と外部への通信を持たない
-この到達範囲は `scripts/dev/compose-reachability-check.sh` で確かめられ、e2e workflow でも実行する
-転送の配線（匿名の `Ping`、h2c の gRPC での匿名の `Ping`、外部トークンの有無と scope による `Greet` の可否、後段が無い宛先の `unavailable`）は `scripts/dev/gateway-wiring-check.sh` で確かめる。`task e2e` はこの 2 つを順に実行する
-公開用の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）・公開 JWKS と、匿名で呼べる業務 RPC になる
-`/healthz` はプロセスが応答できる限り 200 を返す
-`/readyz` は登録された準備チェックがすべて成功したときだけ 200 を返し、1 つでも失敗すれば 503 を返す（失敗の内容は応答本文には出さず、サーバー側のログにだけ記録する）
-`/.well-known/jwks.json` は内部 JWT の署名検証用公開鍵を JWKS として返す（公開用 listener だけに載る）
-この経路は認証不要で、`Authorization`・`workload-authorization`・`X-Serverless-Authorization`・`DPoP` のどの認証ヘッダが付いていても内容は変わらず、identity も作らない
-返すのは署名鍵と `INTERNAL_JWT_PUBLISHED_KEY_FILES` の公開鍵で、秘密鍵成分（`d`）は含まない
+`server` は `TOLO_GATEWAY_LISTENER_MODE=split` で、公開用（8080）と内部用（8090）の 2 つの listener を起動する（停止は `task down`）  
+どちらの listener も HTTP/1.1 と h2c（TLS なしの HTTP/2）を受け、gRPC のクライアントは prior knowledge の h2c で接続できる  
+ホストへ公開するのは公開用の `http://localhost:8080` だけで、内部用の 8090 はホストへ公開せず、`server` とネットワークを共有するサービスから `http://server:8090` でだけ届く  
+`server` と後段のサービスは後段ごとに分けたネットワークで 1 対 1 につながり、後段どうしや DB から `server` へは届かない  
+後段と DB のネットワークは `internal: true` で、ホストへの公開と外部への通信を持たない  
+この到達範囲は `scripts/dev/compose-reachability-check.sh` で確かめられ、e2e workflow でも実行する  
+転送の配線（匿名の `Ping`、h2c の gRPC での匿名の `Ping`、外部トークンの有無と scope による `Greet` の可否、後段が無い宛先の `unavailable`）は `scripts/dev/gateway-wiring-check.sh` で確かめる。`task e2e` はこの 2 つを順に実行する  
+公開用の `server` が公開するのは `/healthz`（liveness）・`/readyz`（readiness）・公開 JWKS と、匿名で呼べる業務 RPC になる  
+`/healthz` はプロセスが応答できる限り 200 を返す  
+`/readyz` は登録された準備チェックがすべて成功したときだけ 200 を返し、1 つでも失敗すれば 503 を返す（失敗の内容は応答本文には出さず、サーバー側のログにだけ記録する）  
+`/.well-known/jwks.json` は内部 JWT の署名検証用公開鍵を JWKS として返す（公開用 listener だけに載る）  
+この経路は認証不要で、`Authorization`・`workload-authorization`・`X-Serverless-Authorization`・`DPoP` のどの認証ヘッダが付いていても内容は変わらず、identity も作らない  
+返すのは署名鍵と `INTERNAL_JWT_PUBLISHED_KEY_FILES` の公開鍵で、秘密鍵成分（`d`）は含まない  
 応答には `Cache-Control: public, max-age=300` と本文から導いた ETag が付き、同じ ETag を `If-None-Match` で送れば 304 を返す
 
-`server` は起動時に RPC 登録表（公開 proto の認可ポリシーと宛先の束縛）を導出し、宛先設定と突き合わせ、登録済み service ごとに型付き委譲のハンドラーを立てる
-転送するのは、資格情報を伴わない匿名 RPC と、外部トークンの検証を通った RPC になる
-公開用 listener では、`DPoP`・`workload-authorization`・`X-Serverless-Authorization`・`tolo-caller-service` のいずれかが付いた要求は、匿名で呼べる RPC であっても `unauthenticated` を返す（送信者拘束は未実装で、サービス間の呼び出しは内部用 listener だけで受けるため、匿名へフォールバックしない）
-`Authorization` が付いた要求は外部トークンとして検証し、検証できない場合と `IDP_ISSUER` が未設定の場合は `unauthenticated` を返す（匿名で呼べる RPC でも同じ）
-認証必須の RPC とサービス専用の RPC も、資格情報なしでは `unauthenticated` を返す
-登録表に無い RPC は `unimplemented` を返す
+`server` は起動時に RPC 登録表（公開 proto の認可ポリシーと宛先の束縛）を導出し、宛先設定と突き合わせ、登録済み service ごとに型付き委譲のハンドラーを立てる  
+転送するのは、資格情報を伴わない匿名 RPC と、外部トークンの検証を通った RPC になる  
+公開用 listener では、`DPoP`・`workload-authorization`・`X-Serverless-Authorization`・`tolo-caller-service` のいずれかが付いた要求は、匿名で呼べる RPC であっても `unauthenticated` を返す（送信者拘束は未実装で、サービス間の呼び出しは内部用 listener だけで受けるため、匿名へフォールバックしない）  
+`Authorization` が付いた要求は外部トークンとして検証し、検証できない場合と `IDP_ISSUER` が未設定の場合は `unauthenticated` を返す（匿名で呼べる RPC でも同じ）  
+認証必須の RPC とサービス専用の RPC も、資格情報なしでは `unauthenticated` を返す  
+登録表に無い RPC は `unimplemented` を返す  
 
-内部用 listener はサービス間の呼び出しだけを受け、匿名 RPC と外部トークンによる RPC は実行しない
-呼び出し元サービスは、`Authorization: Bearer <文脈内部JWT>` があればその `aud`、無ければ `tolo-caller-service` ヘッダで申告された論理サービスIDになる
-両方がある要求・どちらも無い要求・値が空や重複の要求・`DPoP` が付いた要求は `unauthenticated` を返す（`X-Serverless-Authorization` は Cloud Run の IAM 用で、読まない）
-文脈内部JWTは Gateway の署名鍵・期限・`aud` で検証し、無効なら `unauthenticated` を返す。申告ヘッダによる新規マシン起点へは読み替えない
-呼び出し元と RPC の辺が `catalog.Edges()` に無い場合は `permission_denied`、新規マシン起点を許さない辺へ申告ヘッダだけで来た場合は `unauthenticated` を返す
-通れば宛先宛ての `token_use=service` の内部 JWT を再発行して転送する（受信した `Authorization` と `tolo-caller-service` は後段へ渡さない）
-Connect・gRPC・gRPC-Web のいずれかとして解釈できる POST には、その形式に合わせたエラーを返し、それ以外の要求（GET を含む）には 404 を返す
-後段へは受信ヘッダを 1 つも渡さず、後段の応答ヘッダとトレーラーも外へ返さない
-受信した deadline と cancel は後段へ伝え、残存時間は増やさない（deadline が無いときだけ 30 秒の既定値を使う）
+内部用 listener はサービス間の呼び出しだけを受け、匿名 RPC と外部トークンによる RPC は実行しない  
+呼び出し元サービスは、`Authorization: Bearer <文脈内部JWT>` があればその `aud`、無ければ `tolo-caller-service` ヘッダで申告された論理サービスIDになる  
+両方がある要求・どちらも無い要求・値が空や重複の要求・`DPoP` が付いた要求は `unauthenticated` を返す（`X-Serverless-Authorization` は Cloud Run の IAM 用で、読まない）  
+文脈内部JWTは Gateway の署名鍵・期限・`aud` で検証し、無効なら `unauthenticated` を返す。申告ヘッダによる新規マシン起点へは読み替えない  
+呼び出し元と RPC の辺が `catalog.Edges()` に無い場合は `permission_denied`、新規マシン起点を許さない辺へ申告ヘッダだけで来た場合は `unauthenticated` を返す  
+通れば宛先宛ての `token_use=service` の内部 JWT を再発行して転送する（受信した `Authorization` と `tolo-caller-service` は後段へ渡さない）  
+Connect・gRPC・gRPC-Web のいずれかとして解釈できる POST には、その形式に合わせたエラーを返し、それ以外の要求（GET を含む）には 404 を返す  
+後段へは受信ヘッダを 1 つも渡さず、後段の応答ヘッダとトレーラーも外へ返さない  
+受信した deadline と cancel は後段へ伝え、残存時間は増やさない（deadline が無いときだけ 30 秒の既定値を使う）  
 後段へ到達できない場合は `unavailable` を返し、宛先のホスト名などの詳細は応答に出さずサーバー側のログにだけ記録する
 
-RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`、項目は `audit` グループにまとめる）
-項目は `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id` と、値があるときだけ出る `caller_service`・`origin`・`client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti`・`origin_sub`・`failure_reason` になる
-外部トークンを受理した場合は `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti` が入る（`IDP_ISSUER` が未設定なら資格情報つきの要求はすべて `unauthenticated` になるため、入るのは `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id`・`failure_reason` だけになる）
-内部用 listener で再発行した場合は `caller_service`（呼び出し元サービス）と `origin`（`user`・`machine_chain`・`new_machine`）に加え、再発行したトークンの `client_id`・`sub`・`token_use`・`txn`・`jti` と、ユーザー起点なら `src_jti`・`origin_sub` が入る
-監査ログは `LOG_LEVEL` に依らず必ず出力する
+RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`、項目は `audit` グループにまとめる）  
+項目は `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id` と、値があるときだけ出る `caller_service`・`origin`・`client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti`・`origin_sub`・`failure_reason` になる  
+外部トークンを受理した場合は `client_id`・`sub`・`token_use`・`txn`・`jti`・`src_jti` が入る（`IDP_ISSUER` が未設定なら資格情報つきの要求はすべて `unauthenticated` になるため、入るのは `method`・`result`・`source_ip`・`http_status`・`trace_id`・`span_id`・`failure_reason` だけになる）  
+内部用 listener で再発行した場合は `caller_service`（呼び出し元サービス）と `origin`（`user`・`machine_chain`・`new_machine`）に加え、再発行したトークンの `client_id`・`sub`・`token_use`・`txn`・`jti` と、ユーザー起点なら `src_jti`・`origin_sub` が入る  
+監査ログは `LOG_LEVEL` に依らず必ず出力する  
 登録表に無い RPC・RPC として解釈できない要求（GET を含む）は監査の対象にせず、ログも出さない
 
 `failure_reason` は、要求がどこで止まったかを表す
@@ -134,18 +103,18 @@ RPC 1 件につき監査ログを 1 行出力する（メッセージは `audit`
 
 後段の正常な拒否（`upstream_refused`）と後段の障害（`upstream_error`・`upstream_internal`・`upstream_unreachable`）は別の値なので、監査を警報に使うときは後者だけを対象にできる
 
-ログと監査の相関には W3C Trace Context の trace-id を使う
-Gateway は外部に面しているため、受信した `traceparent` を引き継がず、要求ごとに新しいトレースを始める
-trace-id は OTLP のエクスポート設定が無くても採番され、後段へは `traceparent` として伝わる（後段の span は Gateway の span の子になる）
+ログと監査の相関には W3C Trace Context の trace-id を使う  
+Gateway は外部に面しているため、受信した `traceparent` を引き継がず、要求ごとに新しいトレースを始める  
+trace-id は OTLP のエクスポート設定が無くても採番され、後段へは `traceparent` として伝わる（後段の span は Gateway の span の子になる）  
 相関 ID を応答ヘッダで返すことはしない
 
-`source_ip` は `TOLO_GATEWAY_TRUSTED_PROXY_HOPS` が 0（既定）なら接続元アドレスのホスト部になる
-n が 1 以上なら、すべての `X-Forwarded-For` の値を出現順に並べた列の右から n 番目を採り、要素が足りない場合や IP アドレスでない場合は接続元アドレスへ戻す
+`source_ip` は `TOLO_GATEWAY_TRUSTED_PROXY_HOPS` が 0（既定）なら接続元アドレスのホスト部になる  
+n が 1 以上なら、すべての `X-Forwarded-For` の値を出現順に並べた列の右から n 番目を採り、要素が足りない場合や IP アドレスでない場合は接続元アドレスへ戻す  
 `Forwarded`・`X-Real-Ip` などほかの転送ヘッダは読まない
 
-`testbackend` は `server` の JWKS を取得して内部 JWT を検証するテスト用の後段サービスで、`jwtgen` で作った JWKS を配る手順の代わりになる
-`greet.v1.GreetService/Greet` は内部 JWT を要求するが、`greet.v1.GreetService/Ping` は匿名で呼べる
-`Ping` は Gateway 経由で通り、`Greet` は外部トークンを付けたときだけ通る（後述「外部トークンの検証」）
+`testbackend` は `server` の JWKS を取得して内部 JWT を検証するテスト用の後段サービスで、`jwtgen` で作った JWKS を配る手順の代わりになる  
+`greet.v1.GreetService/Greet` は内部 JWT を要求するが、`greet.v1.GreetService/Ping` は匿名で呼べる  
+`Ping` は Gateway 経由で通り、`Greet` は外部トークンを付けたときだけ通る（後述「外部トークンの検証」）  
 Tenant Management と Guest Service は compose にコンテナが無いため、匿名で呼べる `StartTenantRegistration`・`ResolveTenantSubdomain`・`OpenGuestPage` も宛先不達の `unavailable` になる
 
 ```bash
@@ -168,28 +137,28 @@ curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8080/t
 
 #### 外部トークンの検証
 
-`IDP_ISSUER` と `IDP_AUDIENCE` を設定すると外部トークンの検証が有効になる
-未設定なら検証器を持たず、資格情報つきの要求はすべて `unauthenticated` になる
-`server` は起動時に Discovery（`/.well-known/openid-configuration` と `/.well-known/oauth-authorization-server`）をバックグラウンドで解決し、解決できるまで `/readyz` は 503 を返す（この間、匿名 RPC は通り、トークンつきの要求は `unavailable` になる）
-IdP へ届かない・5xx が返るといった一時的な失敗は 5 秒ごとに再試行し続けるが、metadata が設定と食い違う場合や issuer が URL として使えない場合は設定の誤りとしてプロセスが終了する
-受理する claim は Gateway の仕様（`docs/service_gateway_spec.md`）どおりで、IdP の現状に合わせた読み替えは `IDP_LEGACY_EVENTS_WRITE_SCOPE` を除いてしない
-現時点の tolo-idp が発行するトークンは `tenant_id` の形式などが仕様に追随していないため拒否される
-管理系書き込み 6 RPC（ArchiveTenant、ChangeTenantContract、CreateTenantInvitation、ChangeTenantRole、GrantEventRole、RevokeRole）は、検証と認可を通ったあとに IdP へ失効照会（introspection）を行い、`active` なトークンだけを受理する
-照会の結果は jti 単位で 60 秒キャッシュするため、失効はその範囲で遅れて反映される
-IdP へ照会できないときは当該 6 RPC だけを `unauthenticated`（理由 `introspection_unavailable`）で拒否し、他の RPC は通す
-失効済みと報告されたトークンは `unauthenticated`（理由 `token_revoked`）になる
-`IDP_ISSUER` を設定したら `IDP_INTROSPECTION_CLIENT_ID` と `IDP_INTROSPECTION_CLIENT_SECRET_FILE` も必須で、揃っていなければ設定エラーとして起動しない
-照会なしで動かすときは `IDP_INTROSPECTION=disabled` を明示する（このとき 6 RPC は `introspection_unavailable` で拒否され続け、起動時に警告を 1 回記録する）
+`IDP_ISSUER` と `IDP_AUDIENCE` を設定すると外部トークンの検証が有効になる  
+未設定なら検証器を持たず、資格情報つきの要求はすべて `unauthenticated` になる  
+`server` は起動時に Discovery（`/.well-known/openid-configuration` と `/.well-known/oauth-authorization-server`）をバックグラウンドで解決し、解決できるまで `/readyz` は 503 を返す（この間、匿名 RPC は通り、トークンつきの要求は `unavailable` になる）  
+IdP へ届かない・5xx が返るといった一時的な失敗は 5 秒ごとに再試行し続けるが、metadata が設定と食い違う場合や issuer が URL として使えない場合は設定の誤りとしてプロセスが終了する  
+受理する claim は Gateway の仕様（`docs/service_gateway_spec.md`）どおりで、IdP の現状に合わせた読み替えは `IDP_LEGACY_EVENTS_WRITE_SCOPE` を除いてしない  
+現時点の tolo-idp が発行するトークンは `tenant_id` の形式などが仕様に追随していないため拒否される  
+管理系書き込み 6 RPC（ArchiveTenant、ChangeTenantContract、CreateTenantInvitation、ChangeTenantRole、GrantEventRole、RevokeRole）は、検証と認可を通ったあとに IdP へ失効照会（introspection）を行い、`active` なトークンだけを受理する  
+照会の結果は jti 単位で 60 秒キャッシュするため、失効はその範囲で遅れて反映される  
+IdP へ照会できないときは当該 6 RPC だけを `unauthenticated`（理由 `introspection_unavailable`）で拒否し、他の RPC は通す  
+失効済みと報告されたトークンは `unauthenticated`（理由 `token_revoked`）になる  
+`IDP_ISSUER` を設定したら `IDP_INTROSPECTION_CLIENT_ID` と `IDP_INTROSPECTION_CLIENT_SECRET_FILE` も必須で、揃っていなければ設定エラーとして起動しない  
+照会なしで動かすときは `IDP_INTROSPECTION=disabled` を明示する（このとき 6 RPC は `introspection_unavailable` で拒否され続け、起動時に警告を 1 回記録する）  
 introspection を設定したのに IdP の metadata に `introspection_endpoint` が無い場合は、設定の誤りとしてプロセスが終了する
 
-`IDP_LEGACY_EVENTS_WRITE_SCOPE=enabled` を設定すると、外部トークンの `events.write` を `events.manage`・`events.operate`・`events.report` の3つとして扱う（既定は無効で、有効なときは起動時に警告を 1 回記録する）
-tolo-idp が ADR-0063 の新しい語彙をまだ発行できないあいだの一時的な措置であり、外部トークンの scope を転記して拡大しないという仕様からの意図的な逸脱にあたる
-有効にすると `events.write` を持つトークンは設計・構成（`events.manage`）・現場運用（`events.operate`）・計測報告（`events.report`）の3つの権限をまとめて得るため、権限を分けた ADR-0063 の狙いはその範囲で失われる
+`IDP_LEGACY_EVENTS_WRITE_SCOPE=enabled` を設定すると、外部トークンの `events.write` を `events.manage`・`events.operate`・`events.report` の3つとして扱う（既定は無効で、有効なときは起動時に警告を 1 回記録する）  
+tolo-idp が ADR-0063 の新しい語彙をまだ発行できないあいだの一時的な措置であり、外部トークンの scope を転記して拡大しないという仕様からの意図的な逸脱にあたる  
+有効にすると `events.write` を持つトークンは設計・構成（`events.manage`）・現場運用（`events.operate`）・計測報告（`events.report`）の3つの権限をまとめて得るため、権限を分けた ADR-0063 の狙いはその範囲で失われる  
 読み替えは Gateway の認可と後段へ渡す内部 JWT の `scope` の両方に反映され、IdP が新しい scope を発行するようになったら（Issue #20）この設定ごと削除する
 
-compose の `fakeidp`（`http://localhost:8082`）は開発専用の偽 IdP で、`POST /token` の本文をそのまま claim にしたトークンを検証なしで発行する
-`POST /oauth2/introspect` は自分が発行した期限内のトークンを `active` と答え、開発専用の `POST /revoke`（`{"jti":"..."}` または `{"token":"..."}`）で失効させられる
-introspection の client 認証に使う secret は compose の `keygen` が名前付きボリュームへ生成し、`server` と `fakeidp` の両方が読み込み専用で読む
+compose の `fakeidp`（`http://localhost:8082`）は開発専用の偽 IdP で、`POST /token` の本文をそのまま claim にしたトークンを検証なしで発行する  
+`POST /oauth2/introspect` は自分が発行した期限内のトークンを `active` と答え、開発専用の `POST /revoke`（`{"jti":"..."}` または `{"token":"..."}`）で失効させられる  
+introspection の client 認証に使う secret は compose の `keygen` が名前付きボリュームへ生成し、`server` と `fakeidp` の両方が読み込み専用で読む  
 本番相当の環境へ配備してはならない
 
 ```bash
@@ -201,7 +170,7 @@ curl -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKE
   -d '{"name":"tolo"}' http://localhost:8080/greet.v1.GreetService/Greet
 ```
 
-このトークンでは `Greet` が挨拶を返す
+このトークンでは `Greet` が挨拶を返す  
 `scope` を `other.read` にしたトークンでは `permission_denied`、`tenant_id` を `tenant-a` にしたトークンでは `unauthenticated` になる
 
 失効照会は次のように確かめられる
@@ -217,7 +186,7 @@ curl -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKE
 curl -X POST -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\"}" http://localhost:8082/revoke
 ```
 
-`ArchiveTenant` は認証・認可・失効照会を通り、宛先の Tenant Management が居ないため `unavailable`（`upstream unavailable`）になる
+`ArchiveTenant` は認証・認可・失効照会を通り、宛先の Tenant Management が居ないため `unavailable`（`upstream unavailable`）になる  
 `/revoke` の後に新しく発行したトークンで同じ RPC を呼ぶと `unauthenticated` になる（同じトークンは 60 秒のキャッシュが切れるまで結果が変わらない）
 
 #### 環境変数
@@ -242,9 +211,9 @@ curl -X POST -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\"}" htt
 | `TOLO_GATEWAY_DESTINATIONS_FILE` | 必須 | なし | 宛先設定ファイル（JSON）のパス。起動時に読み込み、読めない・形式が不正・RPC 登録表と噛み合わない場合は起動に失敗する |
 | `TOLO_GATEWAY_TRUSTED_PROXY_HOPS` | 任意 | `0` | 信頼する前段プロキシの段数（0〜16 の整数）。監査ログの `source_ip` を `X-Forwarded-For` の右から何番目で採るかを決める。範囲外の値と整数でない値は設定エラーになる |
 
-必須の変数が欠けている場合は設定エラーとして起動に失敗する
-廃止した `SERVER_ADDR`・`TOLO_WORKLOAD_AUTH_MODE`・`TOLO_GATEWAY_ROLE`・`TOLO_GATEWAY_WORKLOAD_PORT` のどれかが設定されていても、設定エラーとして起動に失敗する
-listener のいずれかが待受を始められない場合も、プロセスは起動に失敗する
+必須の変数が欠けている場合は設定エラーとして起動に失敗する  
+廃止した `SERVER_ADDR`・`TOLO_WORKLOAD_AUTH_MODE`・`TOLO_GATEWAY_ROLE`・`TOLO_GATEWAY_WORKLOAD_PORT` のどれかが設定されていても、設定エラーとして起動に失敗する  
+listener のいずれかが待受を始められない場合も、プロセスは起動に失敗する  
 compose を使わずに起動する場合、開発用の署名鍵は `openssl ecparam -name prime256v1 -genkey -noout -out <path>` で生成できる（鍵ファイルはリポジトリに置かない）
 
 #### 宛先設定ファイル
@@ -265,25 +234,25 @@ compose を使わずに起動する場合、開発用の署名鍵は `openssl ec
 }
 ```
 
-未知のフィールドと、最上位オブジェクトより後ろにある余分なデータは受け付けない
-`destinations` が無い・空、論理サービスIDが空文字、`url` が空はいずれもエラーになる
-`url` の scheme は `http` か `https`、host は必須で、userinfo・query・fragment は持てず、path は空か `/` だけ許す
-RPC 登録表が参照する宛先が設定に無い場合も、設定にあるが登録表から参照されない宛先がある場合もエラーになる
+未知のフィールドと、最上位オブジェクトより後ろにある余分なデータは受け付けない  
+`destinations` が無い・空、論理サービスIDが空文字、`url` が空はいずれもエラーになる  
+`url` の scheme は `http` か `https`、host は必須で、userinfo・query・fragment は持てず、path は空か `/` だけ許す  
+RPC 登録表が参照する宛先が設定に無い場合も、設定にあるが登録表から参照されない宛先がある場合もエラーになる  
 compose では `config/compose/destinations.json` を `/etc/tolo/gateway/destinations.json` へ読み込み専用でマウントしている
 
-登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService`（宛先 `tolo-tenant-management`）、Graph Authoring の `tolo.graph.v1.GraphAuthoringService` と `tolo.graph.v1.GraphSupplyService`（宛先 `tolo-graph-authoring`）、Observation の `tolo.observation.v1.MeasurementIngestService`・`tolo.observation.v1.EdgeDeviceService`・`tolo.observation.v1.ObservationSettingsService`・`tolo.observation.v1.StatusQueryService`（宛先 `tolo-observation`）、Operation の `tolo.operation.v1.StaffCommunicationService`・`tolo.operation.v1.OperationControlService`・`tolo.operation.v1.DeliveryCoordinationService`・`tolo.operation.v1.DigestService`（宛先 `tolo-operation`）、Guest Service の `tolo.guest.v1.GuestPageService`・`tolo.guest.v1.GuestSettingsService`（宛先 `tolo-guest`）、Realtime の `tolo.realtime.v1.RealtimeFetchService`（宛先 `tolo-realtime`）が入っている
-ただしこのリポジトリの compose には Tenant Management、Graph Authoring、Observation、Operation、Guest Service、Realtime のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる
+登録表には `greet.v1.GreetService` に加えて Tenant Management の `tolo.tenant.v1.TenantService` と `tolo.relation.v1.RelationAdminService`（宛先 `tolo-tenant-management`）、Graph Authoring の `tolo.graph.v1.GraphAuthoringService` と `tolo.graph.v1.GraphSupplyService`（宛先 `tolo-graph-authoring`）、Observation の `tolo.observation.v1.MeasurementIngestService`・`tolo.observation.v1.EdgeDeviceService`・`tolo.observation.v1.ObservationSettingsService`・`tolo.observation.v1.StatusQueryService`（宛先 `tolo-observation`）、Operation の `tolo.operation.v1.StaffCommunicationService`・`tolo.operation.v1.OperationControlService`・`tolo.operation.v1.DeliveryCoordinationService`・`tolo.operation.v1.DigestService`（宛先 `tolo-operation`）、Guest Service の `tolo.guest.v1.GuestPageService`・`tolo.guest.v1.GuestSettingsService`（宛先 `tolo-guest`）、Realtime の `tolo.realtime.v1.RealtimeFetchService`（宛先 `tolo-realtime`）が入っている  
+ただしこのリポジトリの compose には Tenant Management、Graph Authoring、Observation、Operation、Guest Service、Realtime のコンテナが無いため、これらの RPC は宛先へ到達できず `unavailable` になる  
 実物の後段サービスや実物の IdP とつないだ確認は、[tolo](https://github.com/pj-hoakari/tolo) リポジトリの compose で行う
 
 #### 配備についての注意
 
-内部用 listener へ到達できる呼び出し元の制限はアプリではなくプラットフォームが担う（`docs/service_transport.md`）
-Cloud Run では内部用の配備の ingress を内部に限り、各サービスの実行 SA にだけ Invoker を付与する。Compose では内部用のポートをホストへ公開しない
+内部用 listener へ到達できる呼び出し元の制限はアプリではなくプラットフォームが担う（`docs/service_transport.md`）  
+Cloud Run では内部用の配備の ingress を内部に限り、各サービスの実行 SA にだけ Invoker を付与する。Compose では内部用のポートをホストへ公開しない  
 アプリはこの構成を検査できないため、配備ごとに確かめる
 
 ### トレースの確認（Jaeger）
 
-監視スタックはオーバーライドファイル `compose.o11y.yml` を重ねたときだけ有効になる
+監視スタックはオーバーライドファイル `compose.o11y.yml` を重ねたときだけ有効になる  
 Jaeger が起動し、`server` に OTLP エクスポート用の環境変数（`OTEL_EXPORTER_OTLP_ENDPOINT` など）がセットされる
 
 ```bash
@@ -301,7 +270,7 @@ Jaeger UI は `http://localhost:16686`（停止は `task down`）
 
 ## proto アーティファクトの利用
 
-`.proto` は [ORAS](https://oras.land) で OCI アーティファクト化され、GitHub Container Registry に公開される
+`.proto` は [ORAS](https://oras.land) で OCI アーティファクト化され、GitHub Container Registry に公開される  
 アーティファクト名: `ghcr.io/<owner>/<repo>/proto`
 
 ### 取得（pull）

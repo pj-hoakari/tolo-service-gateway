@@ -1,48 +1,8 @@
 # syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS tools-builder
-
-WORKDIR /src
-
-COPY go.mod go.sum* ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
-
-COPY cmd ./cmd
-COPY internal ./internal
-COPY gen ./gen
-
-ARG TARGETOS
-ARG TARGETARCH
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build,id=go-build-${TARGETARCH} \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags='-s -w' -o /out/testbackend ./cmd/testbackend
-
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build,id=go-build-${TARGETARCH} \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags='-s -w' -o /out/fakeidp ./cmd/fakeidp
-
-
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS observation-source
-
-# The server build requires the 'observation' additional build context.
-# Without it BuildKit tries to pull an "observation" image and reports "pull access denied".
-# docker build --target server --build-context observation=../tolo-observation -t <image> .
-COPY --from=observation / /tolo-observation
-
-RUN test -f /tolo-observation/gen/tolo/observation/v1/observation.pb.go \
-    && grep -q 'camera_links' /tolo-observation/gen/tolo/observation/v1/observation.pb.go \
-    && grep -q 'linked_observation_point_id' /tolo-observation/gen/tolo/observation/v1/observation.pb.go \
-    || { echo "ERROR: the 'observation' build context does not contain the camera proto; pass --build-context observation=../tolo-observation or a tolo-observation commit that includes the camera fields" >&2; exit 1; }
-
-
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS builder
 
 WORKDIR /src
 
-COPY go.work* ./
-COPY --from=observation-source /tolo-observation /tolo-observation
 COPY go.mod go.sum* ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
@@ -58,10 +18,20 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags='-s -w' -o /out/server ./cmd/server
 
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build,id=go-build-${TARGETARCH} \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags='-s -w' -o /out/testbackend ./cmd/testbackend
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build,id=go-build-${TARGETARCH} \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags='-s -w' -o /out/fakeidp ./cmd/fakeidp
+
 
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS fakeidp
 
-COPY --from=tools-builder /out/fakeidp /usr/local/bin/fakeidp
+COPY --from=builder /out/fakeidp /usr/local/bin/fakeidp
 
 EXPOSE 8080
 
@@ -72,7 +42,7 @@ ENTRYPOINT ["/usr/local/bin/fakeidp"]
 
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS testbackend
 
-COPY --from=tools-builder /out/testbackend /usr/local/bin/testbackend
+COPY --from=builder /out/testbackend /usr/local/bin/testbackend
 
 EXPOSE 8080
 

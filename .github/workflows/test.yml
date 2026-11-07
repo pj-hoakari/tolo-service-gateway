@@ -25,25 +25,7 @@ jobs:
                       **/*.go
                       go.mod
                       go.sum
-                      go.work
-                      go.work.sum
-                      tolo-observation.ref
                       .github/workflows/test.yml
-
-            - name: Read pinned tolo-observation commit
-              id: observation
-              if: steps.changes.outputs.changed == 'true'
-              run: echo "ref=$(cat tolo-observation.ref)" >> "${GITHUB_OUTPUT}"
-
-            - name: Checkout tolo-observation
-              if: steps.changes.outputs.changed == 'true'
-              env:
-                  TOLO_OBSERVATION_REF: ${{ vars.TOLO_OBSERVATION_REF || steps.observation.outputs.ref }}
-              run: |
-                  git init ../tolo-observation
-                  git -C ../tolo-observation remote add origin https://github.com/pj-hoakari/tolo-observation.git
-                  git -C ../tolo-observation fetch --depth 1 origin "${TOLO_OBSERVATION_REF}"
-                  git -C ../tolo-observation checkout --detach FETCH_HEAD
 
             - name: Set up Go
               if: steps.changes.outputs.changed == 'true'
