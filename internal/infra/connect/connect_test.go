@@ -47,11 +47,12 @@ const clientTraceparent = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-
 const clientTraceID = "0123456789abcdef0123456789abcdef"
 
 const (
-	acceptedToken  = "external-token-a"
-	scopelessToken = "external-token-b"
-	unknownToken   = "external-token-c"
-	internalToken  = "internal-token-a"
-	staffToken     = "external-token-staff"
+	acceptedToken    = "external-token-a"
+	scopelessToken   = "external-token-b"
+	unknownToken     = "external-token-c"
+	internalToken    = "internal-token-a"
+	staffToken       = "external-token-staff"
+	eventManageToken = "external-token-events-manage"
 )
 
 const (
@@ -135,6 +136,17 @@ func newAuthenticator() *authn.Authenticator {
 			ClientID:          externalClientID,
 			TokenUse:          internaljwt.TokenUseEventAccess,
 			Scope:             "events.read",
+			JTI:               externalJTI,
+			TenantID:          externalTenantID,
+			EventID:           contextEventID,
+			ExpiresAt:         time.Now().Add(15 * time.Minute),
+			SenderConstrained: false,
+		},
+		eventManageToken: {
+			Subject:           externalSubject,
+			ClientID:          externalClientID,
+			TokenUse:          internaljwt.TokenUseEventAccess,
+			Scope:             "events.manage",
 			JTI:               externalJTI,
 			TenantID:          externalTenantID,
 			EventID:           contextEventID,

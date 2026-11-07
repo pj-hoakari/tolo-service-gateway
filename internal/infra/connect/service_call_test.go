@@ -125,6 +125,31 @@ func (s upstreamMeasurementIngestService) ReportMeasurements(
 	return &observationv1.ReportMeasurementsResponse{}, nil
 }
 
+type upstreamEdgeDeviceService struct {
+	observationv1connect.UnimplementedEdgeDeviceServiceHandler
+	requests chan *observationv1.RegisterEdgeDeviceRequest
+}
+
+func (s upstreamEdgeDeviceService) RegisterEdgeDevice(
+	_ context.Context,
+	req *observationv1.RegisterEdgeDeviceRequest,
+) (*observationv1.RegisterEdgeDeviceResponse, error) {
+	s.requests <- req
+
+	return &observationv1.RegisterEdgeDeviceResponse{
+		Device: &observationv1.EdgeDevice{
+			EdgeDeviceId: "camera-1",
+			EventId:      req.GetEventId(),
+			Name:         req.GetName(),
+			Kind:         req.GetKind(),
+			CameraLinks: []*observationv1.CameraLink{{
+				CameraEdgeDeviceId: "camera-1",
+				ObservationPointId: req.GetLinkedObservationPointId(),
+			}},
+		},
+	}, nil
+}
+
 type upstreamGuestPageService struct {
 	guestv1connect.UnimplementedGuestPageServiceHandler
 	calls chan http.Header
@@ -182,18 +207,20 @@ func (s upstreamDeliveryCoordinationService) RequestProposalDelivery(
 }
 
 type serviceFixture struct {
-	tenants    tenantv1connect.TenantServiceClient
-	graphs     graphv1connect.GraphSupplyServiceClient
-	staff      operationv1connect.StaffCommunicationServiceClient
-	deliveries    operationv1connect.DeliveryCoordinationServiceClient
-	statuses      observationv1connect.StatusQueryServiceClient
-	measurements  observationv1connect.MeasurementIngestServiceClient
-	guestPages    guestv1connect.GuestPageServiceClient
-	guestSettings guestv1connect.GuestSettingsServiceClient
-	issuer        *issuer.Issuer
-	backend       *verifier.ContextVerifier
-	upstream      chan http.Header
-	audit         *bytes.Buffer
+	tenants            tenantv1connect.TenantServiceClient
+	graphs             graphv1connect.GraphSupplyServiceClient
+	staff              operationv1connect.StaffCommunicationServiceClient
+	deliveries         operationv1connect.DeliveryCoordinationServiceClient
+	statuses           observationv1connect.StatusQueryServiceClient
+	measurements       observationv1connect.MeasurementIngestServiceClient
+	edgeDevices        observationv1connect.EdgeDeviceServiceClient
+	guestPages         guestv1connect.GuestPageServiceClient
+	guestSettings      guestv1connect.GuestSettingsServiceClient
+	issuer             *issuer.Issuer
+	backend            *verifier.ContextVerifier
+	upstream           chan http.Header
+	edgeDeviceRequests chan *observationv1.RegisterEdgeDeviceRequest
+	audit              *bytes.Buffer
 }
 
 func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
@@ -232,6 +259,7 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 	}
 
 	calls := make(chan http.Header, 8)
+	edgeDeviceRequests := make(chan *observationv1.RegisterEdgeDeviceRequest, 8)
 
 	mux := http.NewServeMux()
 	server := connectrpc.NewServer()
@@ -258,6 +286,10 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 	observationv1connect.RegisterMeasurementIngestServiceHandler(server, upstreamMeasurementIngestService{
 		UnimplementedMeasurementIngestServiceHandler: observationv1connect.UnimplementedMeasurementIngestServiceHandler{},
 		calls: calls,
+	})
+	observationv1connect.RegisterEdgeDeviceServiceHandler(server, upstreamEdgeDeviceService{
+		UnimplementedEdgeDeviceServiceHandler: observationv1connect.UnimplementedEdgeDeviceServiceHandler{},
+		requests:                              edgeDeviceRequests,
 	})
 	guestv1connect.RegisterGuestPageServiceHandler(server, upstreamGuestPageService{
 		UnimplementedGuestPageServiceHandler: guestv1connect.UnimplementedGuestPageServiceHandler{},
@@ -306,18 +338,20 @@ func newServiceGateway(t *testing.T, inbound config.Inbound) serviceFixture {
 	client := connectrpc.NewClient(connecthttp.NewTransport(gateway.Client(), gateway.URL))
 
 	return serviceFixture{
-		tenants:    tenantv1connect.NewTenantServiceClient(client),
-		graphs:     graphv1connect.NewGraphSupplyServiceClient(client),
-		staff:      operationv1connect.NewStaffCommunicationServiceClient(client),
-		deliveries:    operationv1connect.NewDeliveryCoordinationServiceClient(client),
-		statuses:      observationv1connect.NewStatusQueryServiceClient(client),
-		measurements:  observationv1connect.NewMeasurementIngestServiceClient(client),
-		guestPages:    guestv1connect.NewGuestPageServiceClient(client),
-		guestSettings: guestv1connect.NewGuestSettingsServiceClient(client),
-		issuer:        gatewayIssuer,
-		backend:       contexts,
-		upstream:      calls,
-		audit:         logs,
+		tenants:            tenantv1connect.NewTenantServiceClient(client),
+		graphs:             graphv1connect.NewGraphSupplyServiceClient(client),
+		staff:              operationv1connect.NewStaffCommunicationServiceClient(client),
+		deliveries:         operationv1connect.NewDeliveryCoordinationServiceClient(client),
+		statuses:           observationv1connect.NewStatusQueryServiceClient(client),
+		measurements:       observationv1connect.NewMeasurementIngestServiceClient(client),
+		edgeDevices:        observationv1connect.NewEdgeDeviceServiceClient(client),
+		guestPages:         guestv1connect.NewGuestPageServiceClient(client),
+		guestSettings:      guestv1connect.NewGuestSettingsServiceClient(client),
+		issuer:             gatewayIssuer,
+		backend:            contexts,
+		upstream:           calls,
+		edgeDeviceRequests: edgeDeviceRequests,
+		audit:              logs,
 	}
 }
 
@@ -1077,6 +1111,70 @@ func TestPublicListenerExchangesAStaffTokenForGuestSettings(t *testing.T) {
 
 	assertAudit(t, singleAuditRecord(t, f.audit), map[string]any{
 		"method": guestv1connect.GuestSettingsServiceGetGuestSettingsProcedure,
+		"result": "ok",
+	})
+}
+
+func TestPublicListenerKeepsObservationCameraFields(t *testing.T) {
+	t.Parallel()
+
+	const (
+		cameraID = "camera-1"
+		pointID  = "point-1"
+	)
+
+	f := newServiceGateway(t, config.InboundPublic)
+
+	ctx, info := connectrpc.NewClientContext(t.Context())
+	info.RequestHeader().Set("Authorization", "Bearer "+eventManageToken)
+
+	res, err := f.edgeDevices.RegisterEdgeDevice(ctx, &observationv1.RegisterEdgeDeviceRequest{
+		EventId:                  contextEventID,
+		Name:                     "camera-e2e",
+		Kind:                     observationv1.EdgeDeviceKind_EDGE_DEVICE_KIND_CAMERA,
+		LinkedObservationPointId: pointID,
+	})
+	if err != nil {
+		t.Fatalf("RegisterEdgeDevice() error = %v, want nil", err)
+	}
+
+	var forwarded *observationv1.RegisterEdgeDeviceRequest
+
+	select {
+	case forwarded = <-f.edgeDeviceRequests:
+	default:
+		t.Fatal("the upstream was not called")
+	}
+
+	if got := forwarded.GetKind(); got != observationv1.EdgeDeviceKind_EDGE_DEVICE_KIND_CAMERA {
+		t.Errorf("forwarded kind = %v, want %v", got, observationv1.EdgeDeviceKind_EDGE_DEVICE_KIND_CAMERA)
+	}
+
+	if got := forwarded.GetLinkedObservationPointId(); got != pointID {
+		t.Errorf("forwarded linked_observation_point_id = %q, want %q", got, pointID)
+	}
+
+	device := res.GetDevice()
+
+	if got := device.GetKind(); got != observationv1.EdgeDeviceKind_EDGE_DEVICE_KIND_CAMERA {
+		t.Errorf("response kind = %v, want %v", got, observationv1.EdgeDeviceKind_EDGE_DEVICE_KIND_CAMERA)
+	}
+
+	links := device.GetCameraLinks()
+	if len(links) != 1 {
+		t.Fatalf("response camera_links = %v, want one link", links)
+	}
+
+	if got := links[0].GetCameraEdgeDeviceId(); got != cameraID {
+		t.Errorf("response camera_edge_device_id = %q, want %q", got, cameraID)
+	}
+
+	if got := links[0].GetObservationPointId(); got != pointID {
+		t.Errorf("response observation_point_id = %q, want %q", got, pointID)
+	}
+
+	assertAudit(t, singleAuditRecord(t, f.audit), map[string]any{
+		"method": observationv1connect.EdgeDeviceServiceRegisterEdgeDeviceProcedure,
 		"result": "ok",
 	})
 }
