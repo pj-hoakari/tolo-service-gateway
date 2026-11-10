@@ -31,8 +31,6 @@ const (
 	envIDPIntrospection           = "IDP_INTROSPECTION"
 	envIDPIntrospectionClientID   = "IDP_INTROSPECTION_CLIENT_ID"
 	envIDPIntrospectionSecretFile = "IDP_INTROSPECTION_CLIENT_SECRET_FILE" //nolint:gosec // the name of an environment variable holding a path, not a credential
-
-	envIDPLegacyEventsWriteScope = "IDP_LEGACY_EVENTS_WRITE_SCOPE"
 )
 
 const (
@@ -43,14 +41,14 @@ const (
 
 const maxPort = 65535
 
+const envRetiredIDPLegacyEventsWriteScope = "IDP_LEGACY_EVENTS_WRITE_SCOPE"
+
 var retiredListenerEnvs = []string{"SERVER_ADDR", "TOLO_WORKLOAD_AUTH_MODE", "TOLO_GATEWAY_ROLE", "TOLO_GATEWAY_WORKLOAD_PORT"}
 
 const (
 	introspectionRequired = "required"
 	introspectionDisabled = "disabled"
 )
-
-const legacyEventsWriteScopeEnabled = "enabled"
 
 const publishedKeySeparator = "="
 
@@ -90,7 +88,6 @@ type Config struct {
 	IDPIntrospectionSecretFile string
 	IDPIntrospectionSecret     string
 	IDPIntrospectionDisabled   bool
-	IDPLegacyEventsWriteScope  bool
 	DestinationsFile           string
 	TrustedProxyHops           int
 }
@@ -161,9 +158,8 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 
-	legacyEventsWriteScope, err := parseLegacyEventsWriteScope(idpIssuer, getenv(envIDPLegacyEventsWriteScope))
-	if err != nil {
-		errs = append(errs, err)
+	if getenv(envRetiredIDPLegacyEventsWriteScope) != "" {
+		errs = append(errs, fmt.Errorf("%s is no longer supported; the IdP issues events.manage, events.operate and events.report directly", envRetiredIDPLegacyEventsWriteScope))
 	}
 
 	if err := errors.Join(errs...); err != nil {
@@ -185,7 +181,6 @@ func Load(getenv func(string) string) (Config, error) {
 		IDPIntrospectionSecretFile: introspectionSecretFile,
 		IDPIntrospectionSecret:     introspectionSecret,
 		IDPIntrospectionDisabled:   introspectionDisabled,
-		IDPLegacyEventsWriteScope:  legacyEventsWriteScope,
 		DestinationsFile:           destinationsFile,
 		TrustedProxyHops:           trustedProxyHops,
 	}, nil
@@ -321,22 +316,6 @@ func parseIntrospection(issuer, raw, clientID, secretFile string) (bool, error) 
 	}
 
 	return false, nil
-}
-
-func parseLegacyEventsWriteScope(issuer, raw string) (bool, error) {
-	if raw == "" {
-		return false, nil
-	}
-
-	if raw != legacyEventsWriteScopeEnabled {
-		return false, fmt.Errorf("%s must be %q when it is set, got %q", envIDPLegacyEventsWriteScope, legacyEventsWriteScopeEnabled, raw)
-	}
-
-	if issuer == "" {
-		return false, fmt.Errorf("%s is set but %s is not", envIDPLegacyEventsWriteScope, envIDPIssuer)
-	}
-
-	return true, nil
 }
 
 func readSecretFile(path string) (string, error) {
