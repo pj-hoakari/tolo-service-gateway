@@ -34,12 +34,12 @@ jobs:
         steps:
             - name: Resolve pull request head
               id: pr
-              uses: pj-hoakari/actions/pull-request-head@92b346752a66ad19a36fbc929191603f72e00fe9 # v20261020.0.2
+              uses: pj-hoakari/actions/pull-request-head@e0ffe48f766307783a545c33bc29d58362094572 # v20261113.0.0
               with:
                   number: ${{ github.event.issue.number || github.event.pull_request.number }}
 
             - name: Dispatch preview
-              uses: pj-hoakari/actions/dispatch-preview@92b346752a66ad19a36fbc929191603f72e00fe9 # v20261020.0.2
+              uses: pj-hoakari/actions/dispatch-preview@e0ffe48f766307783a545c33bc29d58362094572 # v20261113.0.0
               with:
                   action: ${{ github.event_name == 'issue_comment' && 'start' || 'update' }}
                   number: ${{ steps.pr.outputs.number }}
@@ -57,10 +57,10 @@ jobs:
         steps:
             - name: Check the commenter
               if: github.event_name == 'issue_comment'
-              uses: pj-hoakari/actions/pull-request-head@92b346752a66ad19a36fbc929191603f72e00fe9 # v20261020.0.2
+              uses: pj-hoakari/actions/pull-request-head@e0ffe48f766307783a545c33bc29d58362094572 # v20261113.0.0
 
             - name: Dispatch preview
-              uses: pj-hoakari/actions/dispatch-preview@92b346752a66ad19a36fbc929191603f72e00fe9 # v20261020.0.2
+              uses: pj-hoakari/actions/dispatch-preview@e0ffe48f766307783a545c33bc29d58362094572 # v20261113.0.0
               with:
                   action: stop
                   number: ${{ github.event.issue.number || github.event.pull_request.number }}
