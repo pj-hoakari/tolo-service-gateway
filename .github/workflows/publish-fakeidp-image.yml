@@ -21,7 +21,7 @@ jobs:
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
             - name: Build and push
-              uses: pj-hoakari/actions/publish-image@92b346752a66ad19a36fbc929191603f72e00fe9 # v20261020.0.2
+              uses: pj-hoakari/actions/publish-image@e0ffe48f766307783a545c33bc29d58362094572 # v20261113.0.0
               with:
                   version: ${{ inputs.version }}
                   image: ghcr.io/pj-hoakari/tolo-fakeidp
