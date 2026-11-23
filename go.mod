@@ -17,13 +17,13 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/pj-hoakari/internal-jwt-handling v0.5.1
 	github.com/pj-hoakari/protoc-gen-authz-go v0.4.2
-	github.com/pj-hoakari/tolo-graph-authoring v0.6.0
-	github.com/pj-hoakari/tolo-guest v0.2.1
+	github.com/pj-hoakari/tolo-graph-authoring v0.6.2
+	github.com/pj-hoakari/tolo-guest v0.2.3
 	github.com/pj-hoakari/tolo-kernel-proto v0.4.0
-	github.com/pj-hoakari/tolo-observation v0.9.0
-	github.com/pj-hoakari/tolo-operation v0.4.0
-	github.com/pj-hoakari/tolo-realtime v0.2.0
-	github.com/pj-hoakari/tolo-tenant-management v0.8.0
+	github.com/pj-hoakari/tolo-observation v0.9.2
+	github.com/pj-hoakari/tolo-operation v0.4.2
+	github.com/pj-hoakari/tolo-realtime v0.2.2
+	github.com/pj-hoakari/tolo-tenant-management v0.8.2
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
@@ -50,7 +50,7 @@ require (
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941 // indirect
-	google.golang.org/grpc v1.84.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20261110000943-09e21b237f2c // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c // indirect
+	google.golang.org/grpc v1.85.0 // indirect
 )
