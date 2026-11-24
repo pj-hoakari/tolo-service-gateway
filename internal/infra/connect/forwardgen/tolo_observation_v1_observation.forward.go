@@ -45,6 +45,10 @@ func (f *toloObservationV1EdgeDeviceServiceForwarder) UpdateObservationPointConf
 	return forward.Unary(ctx, req, f.client.UpdateObservationPointConfig)
 }
 
+func (f *toloObservationV1EdgeDeviceServiceForwarder) AddObservationPoint(ctx context.Context, req *v1.AddObservationPointRequest) (*v1.AddObservationPointResponse, error) {
+	return forward.Unary(ctx, req, f.client.AddObservationPoint)
+}
+
 type toloObservationV1StatusQueryServiceForwarder struct {
 	client observationv1connect.StatusQueryServiceClient
 }
